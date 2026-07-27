@@ -1,0 +1,867 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VKG Production MIS — Lite</title>
+<style>
+  :root {
+    --teal: #0f766e; --teal-bg: #ccfbf1;
+    --amber: #b45309; --amber-bg: #fef3c7;
+    --emerald: #047857; --emerald-bg: #d1fae5;
+    --green: #16a34a; --green-bg: #dcfce7;
+    --stone: #44403c; --stone-bg: #f5f5f4; --stone-border:#e7e5e4;
+    --red: #dc2626; --red-bg:#fee2e2;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:var(--stone-bg); color:#1c1917; }
+  header { background:#1c1917; color:#fafaf9; padding:16px; }
+  header .row { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; max-width:1000px; margin:0 auto; }
+  header h1 { font-size:18px; margin:0; }
+  header p { margin:2px 0 0; font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#5eead4; }
+  .role-select { display:flex; align-items:center; gap:6px; font-size:12px; color:#d6d3d1; }
+  select, input, textarea { font-family:inherit; font-size:14px; padding:8px; border-radius:8px; border:1px solid #d6d3d1; width:100%; background:white; }
+  .bar { background:white; border-bottom:1px solid var(--stone-border); position:sticky; top:0; z-index:5; }
+  .bar .row { max-width:1000px; margin:0 auto; padding:10px 16px; display:flex; align-items:center; justify-content:flex-end; }
+  main { max-width:1000px; margin:0 auto; padding:16px; padding-bottom:60px; }
+  .card { background:white; border:1px solid var(--stone-border); border-radius:12px; padding:16px; margin-bottom:16px; box-shadow:0 1px 2px rgba(0,0,0,0.04); }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:0 16px; }
+  .grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0 16px; }
+  @media (max-width:640px){ .grid,.grid3{ grid-template-columns:1fr; } }
+  label { display:block; margin-bottom:12px; }
+  label span.lbl { display:block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#78716c; margin-bottom:4px; }
+  .pill-row { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+  .pill { padding:7px 14px; border-radius:999px; border:1px solid #d6d3d1; background:white; font-size:13px; font-weight:600; cursor:pointer; color:#57534e; }
+  .pill.active.teal { background:var(--teal); border-color:var(--teal); color:white; }
+  .btn { display:inline-flex; align-items:center; gap:6px; padding:10px 18px; border-radius:8px; border:none; font-size:14px; font-weight:600; cursor:pointer; color:white; }
+  .btn.teal { background:var(--teal); } .btn.teal:hover{ background:#115e59; }
+  .btn.ghost { background:white; color:#57534e; border:1px solid #d6d3d1; }
+  .stat-row { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:16px; }
+  @media(min-width:600px){ .stat-row{ grid-template-columns:repeat(4,1fr); } }
+  .stat { background:white; border:1px solid var(--stone-border); border-radius:10px; padding:12px; border-top:4px solid var(--stone); }
+  .stat.amber{ border-top-color:var(--amber); } .stat.teal{ border-top-color:var(--teal); } .stat.emerald{ border-top-color:var(--emerald); } .stat.red{ border-top-color:var(--red); } .stat.green{ border-top-color:var(--green); }
+  .stat .lbl { font-size:10px; text-transform:uppercase; color:#78716c; letter-spacing:0.5px; }
+  .stat .val { font-family:ui-monospace,monospace; font-weight:700; font-size:16px; margin-top:2px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; background:white; }
+  th { text-align:left; padding:8px; background:var(--stone-bg); font-size:10px; text-transform:uppercase; color:#78716c; letter-spacing:0.5px; white-space:nowrap; }
+  td { padding:8px; border-top:1px solid var(--stone-border); white-space:nowrap; }
+  td.num { text-align:right; font-family:ui-monospace,monospace; }
+  .table-wrap { overflow-x:auto; border:1px solid var(--stone-border); border-radius:12px; margin-bottom:16px; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; white-space:nowrap; }
+  .badge.stone{ background:var(--stone-bg); color:#57534e; } .badge.amber{ background:var(--amber-bg); color:var(--amber); }
+  .badge.teal{ background:var(--teal-bg); color:var(--teal); } .badge.emerald{ background:var(--emerald-bg); color:var(--emerald); }
+  .badge.green{ background:var(--green-bg); color:var(--green); } .badge.red{ background:var(--red-bg); color:var(--red); }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; vertical-align:middle; }
+  .dot.green{ background:var(--green); } .dot.amber{ background:var(--amber); } .dot.red{ background:var(--red); } .dot.stone{ background:#a8a29e; }
+  .actions { display:flex; gap:8px; justify-content:flex-end; }
+  .icon-btn { background:none; border:none; cursor:pointer; font-size:15px; color:#a8a29e; padding:2px; }
+  .icon-btn:hover { color:#44403c; }
+  .icon-btn.danger:hover { color:var(--red); }
+  .empty { text-align:center; color:#a8a29e; padding:24px; }
+  .toast { position:fixed; bottom:16px; right:16px; background:#1c1917; color:white; padding:10px 16px; border-radius:8px; font-size:13px; z-index:50; }
+  .section-title { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#57534e; margin:16px 0 10px; }
+  .section-title:first-child { margin-top:0; }
+  .subcard { border:1px solid var(--stone-border); border-radius:10px; padding:12px; margin-bottom:12px; background:#fafaf9; }
+  .subcard .subtitle { font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:8px; }
+  .slice-table th, .slice-table td { font-size:12px; padding:6px; }
+  .hint { font-size:12px; color:#a8a29e; margin-top:6px; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<header>
+  <div class="row">
+    <div>
+      <h1>VKG Production MIS <span style="font-weight:400;font-size:13px;color:#a8a29e;">(Lite)</span></h1>
+      <p>Mass Targets · Daily Progress</p>
+    </div>
+    <div class="role-select">
+      Role:
+      <select id="roleSelect" onchange="setRole(this.value)">
+        <option value="Staff">Staff</option>
+        <option value="Admin">Admin</option>
+      </select>
+    </div>
+  </div>
+</header>
+
+<div class="bar">
+  <div class="row">
+    <input type="month" id="monthPicker" onchange="setMonth(this.value)" style="width:auto;">
+  </div>
+</div>
+
+<main id="app"></main>
+<div id="toast" style="display:none;" class="toast"></div>
+
+<datalist id="massIdList"></datalist>
+
+<script>
+const KEYS = { MASTER:'lite-prod-master-v2', MASSTARGETS:'lite-prod-masstargets-v1', DAILYLOG:'lite-prod-dailylog-v1' };
+
+// ---- Google Sheet webhook (paste your Apps Script /exec URL here once deployed) ----
+const SHEET_WEBHOOK_URL = ''; // e.g. 'https://script.google.com/macros/s/XXXXXXXX/exec'
+function sendToSheet(record){
+  if (!SHEET_WEBHOOK_URL) return; // not configured yet — app works fine without it
+  fetch(SHEET_WEBHOOK_URL, {
+    method: 'POST',
+    mode: 'no-cors', // Apps Script webhooks don't return CORS headers; we don't need to read the response
+    headers: { 'Content-Type': 'text/plain' },
+    body: JSON.stringify(record)
+  }).catch(err => console.warn('Sheet sync failed (entry is still saved in the app):', err));
+}
+
+// ---- Supabase connection (replaces Claude's window.storage) ----
+const SUPABASE_URL = 'https://kfalpjblwfhlcqmxbwkc.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_LtkaUUlFOJ1DYCq4J1jXSA_63dmARUe';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+async function loadKey(key, fallback){
+  try {
+    const { data, error } = await sb.from('app_storage').select('value').eq('key', key).maybeSingle();
+    if (error) throw error;
+    return data ? data.value : fallback;
+  } catch(e){ console.error('load failed', key, e); return fallback; }
+}
+async function saveKey(key, value){
+  try {
+    const { error } = await sb.from('app_storage').upsert({ key, value, updated_at: new Date().toISOString() });
+    if (error) throw error;
+    return true;
+  } catch(e){ console.error('save failed', key, e); return false; }
+}
+
+let state = {
+  role: 'Staff',
+  month: new Date().toISOString().slice(0,7),
+  master: { massIds: [], managers: [] },
+  massTargets: [],
+  dailyLog: [],
+  loading: true,
+};
+let targetForm = null;
+let logForm = null;
+let targetFormManagerMode = 'select';
+let logFormManagerMode = 'select';
+let logGapDates = [];
+let logGapResolved = true;
+let logGapMode = null;
+let logViewFrom = null;
+let logViewTo = null;
+let expandedMassId = null;
+
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+const today = () => new Date().toISOString().slice(0,10);
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const PITS = ['A','B','C','D','E','F','N'];
+const STAGES = ['Bore & Wiresaw','Slice Drop','Slice Splitting','Slice Removal'];
+const PER_SLICE_STAGES = ['Slice Drop','Slice Splitting','Slice Removal'];
+
+function flash(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.display='block';
+  setTimeout(()=>{ t.style.display='none'; }, 2000);
+}
+function daysBetween(a,b){ return Math.round((new Date(b) - new Date(a)) / 86400000); }
+function addDays(dateStr, days){
+  if (!dateStr) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0,10);
+}
+function monthOfDate(d){ return (d||'').slice(0,7); }
+
+async function init(){
+  state.master = await loadKey(KEYS.MASTER, { massIds: [], managers: [] });
+  state.massTargets = await loadKey(KEYS.MASSTARGETS, []);
+  state.dailyLog = await loadKey(KEYS.DAILYLOG, []);
+  state.loading = false;
+  document.getElementById('monthPicker').value = state.month;
+  render();
+}
+init();
+
+function setRole(r){ state.role = r; render(); }
+function setMonth(m){ state.month = m; targetForm = null; logForm = null; render(); }
+
+async function addMassId(id){ if (!id || state.master.massIds.includes(id)) return; state.master.massIds=[...state.master.massIds,id]; await saveKey(KEYS.MASTER,state.master); }
+async function addManager(name){ if (!name || state.master.managers.includes(name)) return; state.master.managers=[...state.master.managers,name]; await saveKey(KEYS.MASTER,state.master); }
+function refreshDatalists(){
+  document.getElementById('massIdList').innerHTML = state.master.massIds.map(m=>`<option value="${esc(m)}">`).join('');
+}
+
+function makeSlices(n, existing){
+  const arr = [];
+  for (let i=1;i<=n;i++){
+    const prev = (existing||[]).find(s=>s.sliceNo===i);
+    arr.push(prev || { sliceNo:i, dropEnd:'', dropActual:'', splitStart:'', splitEnd:'', splitActual:'', removalStart:'', removalEnd:'', removalActual:'' });
+  }
+  return arr;
+}
+function computeMassStatus(m){
+  const items = [];
+  items.push({ label:'Bore & Wiresaw', plannedEnd:m.boreWiresawEnd, actual:m.boreWiresawActual });
+  (m.slices||[]).forEach(s=>{
+    items.push({ label:`Slice Drop (S${s.sliceNo})`, plannedEnd:s.dropEnd, actual:s.dropActual });
+    items.push({ label:`Slice Splitting (S${s.sliceNo})`, plannedEnd:s.splitEnd, actual:s.splitActual });
+    items.push({ label:`Slice Removal (S${s.sliceNo})`, plannedEnd:s.removalEnd, actual:s.removalActual });
+  });
+  const allDone = items.every(i => i.actual);
+  const totalCount = items.length;
+  const doneCount = items.filter(i=>i.actual).length;
+  let currentStage = allDone ? 'Completed' : (items.find(i=>!i.actual)||{}).label || '—';
+  const todayStr = today();
+  let maxDelay = 0;
+  items.forEach(i=>{
+    if (!i.actual && i.plannedEnd){
+      const d = daysBetween(i.plannedEnd, todayStr);
+      if (d > maxDelay) maxDelay = d;
+    }
+  });
+  let status;
+  if (allDone) status = 'Completed';
+  else if (maxDelay <= 0) status = 'Green';
+  else if (maxDelay <= 2) status = 'Amber';
+  else status = 'Red';
+  return { status, delayDays: maxDelay, currentStage, doneCount, totalCount };
+}
+
+function renderTargetVsAchievement(t){
+  const rows = [];
+  rows.push({ label:'Bore & Wiresaw', plannedStart:t.boreWiresawStart, plannedEnd:t.boreWiresawEnd, actual:t.boreWiresawActual });
+  (t.slices||[]).forEach(s=>{
+    rows.push({ label:`S${s.sliceNo} — Drop`, plannedStart:'', plannedEnd:s.dropEnd, actual:s.dropActual });
+    rows.push({ label:`S${s.sliceNo} — Split`, plannedStart:s.splitStart, plannedEnd:s.splitEnd, actual:s.splitActual });
+    rows.push({ label:`S${s.sliceNo} — Removal`, plannedStart:s.removalStart, plannedEnd:s.removalEnd, actual:s.removalActual });
+  });
+  const todayStr = today();
+  const rowsHtml = rows.map(r=>{
+    let statusBadge;
+    if (r.actual){
+      const late = r.plannedEnd && daysBetween(r.plannedEnd, r.actual) > 0;
+      statusBadge = late ? `<span class="badge amber">Done late</span>` : `<span class="badge emerald">Done</span>`;
+    } else if (r.plannedEnd && daysBetween(r.plannedEnd, todayStr) > 2){
+      statusBadge = `<span class="badge red">Overdue</span>`;
+    } else if (r.plannedEnd && daysBetween(r.plannedEnd, todayStr) > 0){
+      statusBadge = `<span class="badge amber">Overdue</span>`;
+    } else {
+      statusBadge = `<span class="badge stone">Pending</span>`;
+    }
+    return `<tr>
+      <td>${esc(r.label)}</td>
+      <td>${esc(r.plannedStart||'—')}</td>
+      <td>${esc(r.plannedEnd||'—')}</td>
+      <td>${esc(r.actual||'—')}</td>
+      <td>${statusBadge}</td>
+    </tr>`;
+  }).join('');
+  return `
+    <div style="padding:8px;">
+      <p style="font-size:12px;color:#78716c;margin:0 0 8px;">
+        <strong>${esc(t.massId)}</strong> — Pit ${esc(t.pitId)}${t.managerName?` — Manager: ${esc(t.managerName)}`:''}${t.massDimension?` — Mass: ${esc(t.massDimension)}`:''}${t.sliceDimension?` — Slice: ${esc(t.sliceDimension)}`:''}
+      </p>
+      <table class="slice-table"><thead><tr><th>Activity</th><th>Planned Start</th><th>Planned End</th><th>Actual End</th><th>Status</th></tr></thead>
+      <tbody>${rowsHtml}</tbody></table>
+    </div>`;
+}
+
+function blankTarget(){
+  return { id:null, month: state.month, massId:'', pitId:'', managerName:'', slicesTargeted:'', massDimension:'', sliceDimension:'',
+    boreWiresawStart:'', boreWiresawEnd:'', boreWiresawActual:'', slices:[] };
+}
+function openTargetForm(id){
+  const existing = id ? state.massTargets.find(t=>t.id===id) : null;
+  targetForm = existing ? JSON.parse(JSON.stringify(existing)) : blankTarget();
+  targetFormManagerMode = (targetForm.managerName && !state.master.managers.includes(targetForm.managerName)) ? 'new' : 'select';
+  render();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function closeTargetForm(){ targetForm = null; render(); }
+function syncSliceCount(){
+  const n = Math.max(0, Number(targetForm.slicesTargeted)||0);
+  targetForm.slices = makeSlices(n, targetForm.slices);
+  render();
+}
+// Auto-schedule: Bore & Wiresaw ends Day 1 → Slice 1 Drop = Day 2 → Split ends Day 6 → Removal ends Day 8
+// → next slice's Drop = Day 9, repeating with the same 7-day gap between slices.
+function autoFillSliceDates(){
+  const f = targetForm;
+  if (!f.boreWiresawEnd){ alert('Please set the Bore & Wiresaw Planned End date first.'); return; }
+  if (!f.slices || f.slices.length === 0){ alert('Please enter Number of slices targeted first.'); return; }
+  f.slices.forEach((s, idx) => {
+    const dropDay = addDays(f.boreWiresawEnd, 1 + idx*7); // Day 2, Day 9, Day 16, ...
+    s.dropEnd = dropDay;
+    s.splitStart = addDays(dropDay, 1);
+    s.splitEnd = addDays(dropDay, 4);
+    s.removalStart = addDays(dropDay, 5);
+    s.removalEnd = addDays(dropDay, 6);
+  });
+  flash('Planned slice dates auto-filled');
+  render();
+}
+function setSliceField(sliceNo, field, value){
+  const s = targetForm.slices.find(x=>x.sliceNo===sliceNo);
+  if (s) s[field] = value;
+}
+async function submitTarget(){
+  const f = targetForm;
+  if (!f.massId || !f.pitId){ alert('Please fill Mass ID and Pit.'); return; }
+  const rec = { ...f, slicesTargeted: Number(f.slicesTargeted)||0 };
+  if (f.id){
+    state.massTargets = state.massTargets.map(t => t.id===f.id ? rec : t);
+  } else {
+    rec.id = uid();
+    if (state.massTargets.some(t=>t.month===rec.month && t.massId===rec.massId)){ alert('This Mass ID already has a target this month — edit the existing one instead.'); return; }
+    state.massTargets = [...state.massTargets, rec];
+  }
+  await saveKey(KEYS.MASSTARGETS, state.massTargets);
+  await addMassId(f.massId);
+  if (f.managerName) await addManager(f.managerName);
+  flash(f.id ? 'Mass target updated' : 'Mass target added');
+  targetForm = null;
+  render();
+}
+async function deleteTarget(id){
+  if (state.role !== 'Admin') return;
+  if (!confirm('Delete this Mass Target? This cannot be undone.')) return;
+  state.massTargets = state.massTargets.filter(t=>t.id!==id);
+  await saveKey(KEYS.MASSTARGETS, state.massTargets);
+  flash('Mass target deleted');
+  render();
+}
+
+function renderTargetForm(){
+  const f = targetForm;
+  const dropRows = (f.slices||[]).map(s => `
+    <tr>
+      <td style="font-weight:600;">S${s.sliceNo}</td>
+      <td><input type="date" value="${esc(s.dropEnd)}" onchange="setSliceField(${s.sliceNo},'dropEnd',this.value)"></td>
+      <td><input type="date" value="${esc(s.dropActual)}" onchange="setSliceField(${s.sliceNo},'dropActual',this.value)"></td>
+    </tr>`).join('');
+  const splitRows = (f.slices||[]).map(s => `
+    <tr>
+      <td style="font-weight:600;">S${s.sliceNo}</td>
+      <td><input type="date" value="${esc(s.splitStart)}" onchange="setSliceField(${s.sliceNo},'splitStart',this.value)"></td>
+      <td><input type="date" value="${esc(s.splitEnd)}" onchange="setSliceField(${s.sliceNo},'splitEnd',this.value)"></td>
+      <td><input type="date" value="${esc(s.splitActual)}" onchange="setSliceField(${s.sliceNo},'splitActual',this.value)"></td>
+    </tr>`).join('');
+  const removalRows = (f.slices||[]).map(s => `
+    <tr>
+      <td style="font-weight:600;">S${s.sliceNo}</td>
+      <td><input type="date" value="${esc(s.removalStart)}" onchange="setSliceField(${s.sliceNo},'removalStart',this.value)"></td>
+      <td><input type="date" value="${esc(s.removalEnd)}" onchange="setSliceField(${s.sliceNo},'removalEnd',this.value)"></td>
+      <td><input type="date" value="${esc(s.removalActual)}" onchange="setSliceField(${s.sliceNo},'removalActual',this.value)"></td>
+    </tr>`).join('');
+
+  return `
+  <div class="card">
+    <p class="section-title" style="margin-top:0;">${f.id ? 'Edit Mass Target' : 'New Mass Target'}</p>
+    <div class="subcard">
+      <div class="subtitle">Basic info</div>
+      <div class="grid3">
+        <label><span class="lbl">Mass ID</span><input list="massIdList" value="${esc(f.massId)}" onchange="targetForm.massId=this.value" placeholder="e.g. E 9" ${f.id?'disabled':''}></label>
+        <label><span class="lbl">Pit</span>
+          <select onchange="targetForm.pitId=this.value">
+            <option value="">Select pit</option>
+            ${PITS.map(p=>`<option value="${p}" ${f.pitId===p?'selected':''}>${p}</option>`).join('')}
+          </select>
+        </label>
+        <label><span class="lbl">Manager assigned</span>
+          ${targetFormManagerMode==='new' ? `
+            <input value="${esc(f.managerName)}" onchange="targetForm.managerName=this.value" placeholder="Type new manager name" autofocus>
+            ${state.master.managers.length>0 ? `<button type="button" class="btn ghost" style="margin-top:6px;padding:4px 10px;font-size:12px;" onclick="targetFormManagerMode='select'; render();">← Choose from list instead</button>` : ''}
+          ` : `
+            <select onchange="if(this.value==='__new__'){targetFormManagerMode='new'; targetForm.managerName=''; render();} else {targetForm.managerName=this.value;}">
+              <option value="">Select manager...</option>
+              ${state.master.managers.map(m=>`<option value="${esc(m)}" ${f.managerName===m?'selected':''}>${esc(m)}</option>`).join('')}
+              <option value="__new__">+ Add new manager</option>
+            </select>
+          `}
+        </label>
+        <label><span class="lbl">Number of slices targeted</span><input type="number" min="0" step="1" value="${esc(f.slicesTargeted)}" onchange="targetForm.slicesTargeted=this.value; syncSliceCount();"></label>
+        <label><span class="lbl">Mass dimension</span><input value="${esc(f.massDimension)}" onchange="targetForm.massDimension=this.value" placeholder="e.g. 12 x 6 x 5 ft"></label>
+        <label><span class="lbl">Slice dimension</span><input value="${esc(f.sliceDimension)}" onchange="targetForm.sliceDimension=this.value" placeholder="e.g. 12 x 6 x 2 in"></label>
+      </div>
+    </div>
+    <div class="subcard">
+      <div class="subtitle">Bore &amp; Wiresaw</div>
+      <div class="table-wrap">
+        <table class="slice-table">
+          <thead><tr><th>Planned Start</th><th>Planned End</th><th>Actual End</th></tr></thead>
+          <tbody><tr>
+            <td><input type="date" value="${esc(f.boreWiresawStart)}" onchange="targetForm.boreWiresawStart=this.value"></td>
+            <td><input type="date" value="${esc(f.boreWiresawEnd)}" onchange="targetForm.boreWiresawEnd=this.value"></td>
+            <td><input type="date" value="${esc(f.boreWiresawActual)}" onchange="targetForm.boreWiresawActual=this.value"></td>
+          </tr></tbody>
+        </table>
+      </div>
+    </div>
+    ${(f.slices && f.slices.length>0) ? `
+    <button type="button" class="btn teal" onclick="autoFillSliceDates()" style="margin-bottom:12px;">⚡ Auto-fill planned slice dates</button>
+    <p class="hint" style="margin-top:-6px;margin-bottom:12px;">Fills all slices from Bore &amp; Wiresaw's Planned End: Slice 1 Drop the next day, Split by +4 days, Removal by +6 days, next slice starting 7 days after the previous one — then feel free to hand-adjust any individual date.</p>
+    <div class="subcard">
+      <div class="subtitle">Slice Drop</div>
+      <div class="table-wrap">
+        <table class="slice-table">
+          <thead><tr><th>Slice</th><th>Planned End</th><th>Actual End</th></tr></thead>
+          <tbody>${dropRows}</tbody>
+        </table>
+      </div>
+    </div>
+    <div class="subcard">
+      <div class="subtitle">Slice Splitting</div>
+      <div class="table-wrap">
+        <table class="slice-table">
+          <thead><tr><th>Slice</th><th>Planned Start</th><th>Planned End</th><th>Actual End</th></tr></thead>
+          <tbody>${splitRows}</tbody>
+        </table>
+      </div>
+    </div>
+    <div class="subcard">
+      <div class="subtitle">Slice Removal</div>
+      <div class="table-wrap">
+        <table class="slice-table">
+          <thead><tr><th>Slice</th><th>Planned Start</th><th>Planned End</th><th>Actual End</th></tr></thead>
+          <tbody>${removalRows}</tbody>
+        </table>
+      </div>
+    </div>
+    <p class="hint">Tip: leave "Actual End" blank here and log it day-to-day using Daily Progress below instead — it fills these in automatically.</p>
+    ` : `<p class="hint">Enter Number of slices targeted above to generate the per-slice planning table.</p>`}
+    <button class="btn teal" onclick="submitTarget()">${f.id ? 'Save changes' : 'Add mass target'}</button>
+    <button class="btn ghost" onclick="closeTargetForm()">Cancel</button>
+  </div>`;
+}
+
+function blankLog(){ return { date: today(), manager:'', pitId:'', massId:'', stage:'Bore & Wiresaw', sliceNo:'', status:'Started', remarks:'', isCorrection:false, correctionNote:'' }; }
+function openLogForm(){
+  logForm = blankLog();
+  logFormManagerMode = state.master.managers.length>0 ? 'select' : 'new';
+  logGapDates = []; logGapResolved = true; logGapMode = null;
+  render();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function closeLogForm(){ logForm = null; render(); }
+function setLogMass(massId){
+  logForm.massId = massId;
+  const t = state.massTargets.find(x=>x.massId===massId && x.month===state.month);
+  if (t){
+    logForm.pitId = t.pitId;
+    if (!logForm.manager && t.managerName) logForm.manager = t.managerName;
+  }
+  recomputeGap();
+  render();
+}
+function setLogManager(name){
+  logForm.manager = name;
+  recomputeGap();
+  render();
+}
+function setLogDate(dateVal){
+  logForm.date = dateVal;
+  recomputeGap();
+  render();
+}
+function setLogStage(stage){ logForm.stage = stage; logForm.sliceNo = ''; render(); }
+
+// ---- Missed-day detection, scoped to the current month per manager ----
+function isDayCovered(manager, dateStr){
+  return state.dailyLog.some(l => l.manager === manager && l.date === dateStr);
+}
+function computeGapDates(manager, targetDate){
+  if (!manager || !targetDate) return [];
+  const monthStart = state.month + '-01';
+  const managerEntries = state.dailyLog.filter(l => l.manager===manager && monthOfDate(l.date)===state.month);
+  if (managerEntries.length === 0) return []; // no history yet this month — nothing to compare against
+  const earliest = managerEntries.map(l=>l.date).sort()[0];
+  const start = earliest > monthStart ? earliest : monthStart;
+  const gaps = [];
+  let d = new Date(start + 'T00:00:00');
+  const target = new Date(targetDate + 'T00:00:00');
+  while (d < target){
+    const ds = d.toISOString().slice(0,10);
+    if (!isDayCovered(manager, ds)) gaps.push(ds);
+    d.setDate(d.getDate()+1);
+  }
+  return gaps;
+}
+function recomputeGap(){
+  if (!logForm || !logForm.manager || !logForm.date){ logGapDates = []; logGapResolved = true; logGapMode = null; return; }
+  logGapDates = computeGapDates(logForm.manager, logForm.date);
+  logGapResolved = logGapDates.length === 0;
+  logGapMode = null;
+}
+async function resolveGapIgnore(){
+  const manager = logForm.manager;
+  const recs = logGapDates.map(d => ({ id: uid(), date:d, manager, entryType:'ignored', pitId:'', massId:'', stage:'', sliceNo:'', status:'', remarks:'', createdBy: state.role, createdAt: new Date().toISOString() }));
+  state.dailyLog = [...state.dailyLog, ...recs];
+  await saveKey(KEYS.DAILYLOG, state.dailyLog);
+  recs.forEach(sendToSheet);
+  logGapResolved = true; logGapMode = null;
+  flash('Missed days recorded as ignored');
+  render();
+}
+function resolveGapFillData(){
+  logForm.date = logGapDates[0];
+  logGapResolved = true; logGapMode = null;
+  flash('Date set to ' + logForm.date + ' — fill it in below, then repeat for the next missed day');
+  render();
+}
+async function resolveGapRemark(){
+  const input = document.getElementById('gapRemarkInput');
+  const text = input ? input.value.trim() : '';
+  if (!text){ alert('Please enter a remark.'); return; }
+  const manager = logForm.manager;
+  const recs = logGapDates.map(d => ({ id: uid(), date:d, manager, entryType:'remark', pitId:'', massId:'', stage:'', sliceNo:'', status:'', remarks:text, createdBy: state.role, createdAt: new Date().toISOString() }));
+  state.dailyLog = [...state.dailyLog, ...recs];
+  await saveKey(KEYS.DAILYLOG, state.dailyLog);
+  recs.forEach(sendToSheet);
+  logGapResolved = true; logGapMode = null;
+  flash('Remark recorded for missed days');
+  render();
+}
+
+async function submitLog(){
+  const f = logForm;
+  if (!f.manager){ alert('Please select which manager is logging this.'); return; }
+  if (!logGapResolved){ alert('Please resolve the missing-days prompt first.'); return; }
+  if (!f.date || !f.massId || !f.stage || !f.status){ alert('Please fill date, mass, stage and status.'); return; }
+  if (PER_SLICE_STAGES.includes(f.stage) && !f.sliceNo){ alert('Please select the slice number for this stage.'); return; }
+  if (f.isCorrection && !f.correctionNote){ alert('Please note what this is correcting (e.g. "corrects Slice 2 entry from Aug 14 — wrong slice number").'); return; }
+  const rec = { ...f, entryType:'work', id: uid(), createdBy: state.role, createdAt: new Date().toISOString() };
+  state.dailyLog = [...state.dailyLog, rec];
+  await saveKey(KEYS.DAILYLOG, state.dailyLog);
+  sendToSheet(rec);
+
+  if (f.status === 'Completed'){
+    const idx = state.massTargets.findIndex(t=>t.massId===f.massId && t.month===monthOfDate(f.date));
+    if (idx >= 0){
+      const t = state.massTargets[idx];
+      if (f.stage === 'Bore & Wiresaw') t.boreWiresawActual = f.date;
+      else {
+        const s = (t.slices||[]).find(x=>x.sliceNo===Number(f.sliceNo));
+        if (s){
+          if (f.stage === 'Slice Drop') s.dropActual = f.date;
+          else if (f.stage === 'Slice Splitting') s.splitActual = f.date;
+          else if (f.stage === 'Slice Removal') s.removalActual = f.date;
+        }
+      }
+      state.massTargets[idx] = t;
+      await saveKey(KEYS.MASSTARGETS, state.massTargets);
+    }
+  }
+  flash('Progress logged');
+  logForm = null;
+  render();
+}
+async function deleteLog(id){
+  if (state.role !== 'Admin') return;
+  if (!confirm('Delete this log entry? (This does not undo any actual-completion date it may have set.)')) return;
+  state.dailyLog = state.dailyLog.filter(l=>l.id!==id);
+  await saveKey(KEYS.DAILYLOG, state.dailyLog);
+  flash('Log entry deleted');
+  render();
+}
+
+function downloadExcel(){
+  if (typeof XLSX === 'undefined'){ alert('Excel export library did not load — check your internet connection and try again.'); return; }
+
+  const defaultDate = getDefaultViewDate();
+  const from = logViewFrom || defaultDate || (state.month+'-01');
+  const to = logViewTo || from;
+
+  const monthTargets = state.massTargets.filter(t=>t.month===state.month);
+  const summaryRows = monthTargets.map(t=>{
+    const s = computeMassStatus(t);
+    return {
+      'Mass ID': t.massId, 'Pit': t.pitId, 'Manager': t.managerName||'',
+      'Slices Targeted': t.slicesTargeted||0, 'Mass Dimension': t.massDimension||'', 'Slice Dimension': t.sliceDimension||'',
+      'Bore & Wiresaw — Planned Start': t.boreWiresawStart||'', 'Planned End': t.boreWiresawEnd||'', 'Actual End': t.boreWiresawActual||'',
+      'Current Stage': s.currentStage, 'Status': s.status, 'Delay (days)': s.delayDays, 'Progress (activities done)': `${s.doneCount}/${s.totalCount}`
+    };
+  });
+
+  const logRows = state.dailyLog
+    .filter(l => monthOfDate(l.date)===state.month && l.date>=from && l.date<=to)
+    .sort((a,b)=> a.date.localeCompare(b.date))
+    .map(l => ({
+      'Date': l.date, 'Manager': l.manager||'', 'Pit': l.pitId||'', 'Mass ID': l.massId||'',
+      'Stage': l.stage||'', 'Slice No': l.sliceNo||'', 'Status': l.status||'',
+      'Entry Type': (!l.entryType || l.entryType==='work') ? 'Work' : (l.entryType==='ignored' ? 'Missed — Ignored' : 'Missed — Remark'),
+      'Remarks': l.remarks||'', 'Correction?': l.isCorrection ? 'Yes' : 'No', 'Correction Note': l.correctionNote||''
+    }));
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Monthly Summary');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(logRows), 'Daily Log');
+  XLSX.writeFile(wb, `VKG_Production_${state.month}_${from}_to_${to}.xlsx`);
+}
+
+function getDefaultViewDate(){
+  const monthLog = state.dailyLog.filter(l=>monthOfDate(l.date)===state.month);
+  if (monthLog.length===0) return null;
+  return monthLog.map(l=>l.date).sort().slice(-1)[0];
+}
+function setLogViewFrom(v){ logViewFrom = v; render(); }
+function setLogViewTo(v){ logViewTo = v; render(); }
+function resetLogView(){ logViewFrom = null; logViewTo = null; render(); }
+
+function renderLogViewer(){
+  const defaultDate = getDefaultViewDate();
+  const isDefault = !logViewFrom;
+  const from = logViewFrom || defaultDate;
+  const to = logViewTo || from;
+  const results = from ? state.dailyLog.filter(l => monthOfDate(l.date)===state.month && l.date>=from && l.date<=to)
+                          .sort((a,b)=>b.date.localeCompare(a.date)) : [];
+
+  const rowsHtml = results.length===0 ? `<tr><td colspan="6" class="empty">No entries in this period.</td></tr>` :
+    results.map(l=>{
+      if (l.entryType==='ignored' || l.entryType==='remark'){
+        return `<tr>
+          <td>${esc(l.date)}</td><td>${esc(l.manager||'—')}</td>
+          <td colspan="3"><span class="badge ${l.entryType==='ignored'?'stone':'amber'}">${l.entryType==='ignored'?'Missed day — ignored':'Missed day — remark'}</span></td>
+          <td style="color:#78716c;font-size:12px;">${esc(l.remarks||'—')}</td>
+        </tr>`;
+      }
+      return `<tr>
+        <td>${esc(l.date)}</td><td>${esc(l.manager||'—')}</td>
+        <td style="font-family:ui-monospace,monospace;">${esc(l.massId)}</td>
+        <td>${esc(l.stage)}${l.sliceNo?' (S'+esc(l.sliceNo)+')':''}</td>
+        <td><span class="badge ${l.status==='Completed'?'emerald':'amber'}">${esc(l.status)}</span></td>
+        <td style="color:#78716c;font-size:12px;">${esc(l.remarks||'—')}</td>
+      </tr>`;
+    }).join('');
+
+  return `
+  <div class="card">
+    <p class="section-title" style="margin-top:0;">Work Log by Date</p>
+    <div class="grid3">
+      <label><span class="lbl">From</span><input type="date" value="${esc(from||'')}" onchange="setLogViewFrom(this.value)"></label>
+      <label><span class="lbl">To (optional — leave blank for a single day)</span><input type="date" value="${esc(logViewTo||'')}" onchange="setLogViewTo(this.value)"></label>
+      <div style="display:flex;align-items:flex-end;"><button class="btn ghost" style="margin-bottom:12px;" onclick="resetLogView()">Reset to latest</button></div>
+    </div>
+    <button class="btn teal" onclick="downloadExcel()" style="margin-bottom:8px;">⬇ Download Excel (Monthly Summary + this date range)</button>
+    <p class="hint" style="margin-top:-4px;">${isDefault ? (defaultDate ? `Showing the most recently logged date (${esc(defaultDate)}) by default.` : 'No entries logged yet this month.') : `Showing ${esc(from)}${to!==from?' to '+esc(to):''}.`}</p>
+    <div class="table-wrap">
+      <table><thead><tr><th>Date</th><th>Manager</th><th>Mass ID</th><th>Stage</th><th>Status</th><th>Remarks</th></tr></thead>
+      <tbody>${rowsHtml}</tbody></table>
+    </div>
+  </div>`;
+}
+
+function renderGapPrompt(){
+  const gaps = logGapDates;
+  return `
+  <div class="card" style="border-color:var(--amber);border-width:2px;">
+    <p class="section-title" style="margin-top:0;color:var(--amber);">⚠ Missing entries for ${esc(logForm.manager)}</p>
+    <p style="font-size:13px;margin:0 0 12px;">No progress was logged from <strong>${esc(gaps[0])}</strong> to <strong>${esc(gaps[gaps.length-1])}</strong> (${gaps.length} day${gaps.length===1?'':'s'}). Choose how to handle this before continuing:</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+      <button class="btn ghost" onclick="resolveGapIgnore()">Ignore</button>
+      <button class="btn teal" onclick="resolveGapFillData()">Fill Data</button>
+      <button class="btn ghost" onclick="logGapMode='remark'; render();">Fill Remark</button>
+    </div>
+    ${logGapMode==='remark' ? `
+      <label><span class="lbl">Remark for ${esc(gaps[0])}${gaps.length>1?' to '+esc(gaps[gaps.length-1]):''}</span>
+        <input id="gapRemarkInput" placeholder="e.g. Manager on leave, site closed, etc.">
+      </label>
+      <button class="btn teal" onclick="resolveGapRemark()">Submit remark &amp; continue</button>
+    ` : ''}
+  </div>`;
+}
+
+function renderLogForm(){
+  const f = logForm;
+  const monthTargets = state.massTargets.filter(t=>t.month===state.month);
+  const selectedMass = monthTargets.find(t=>t.massId===f.massId);
+  const sliceOptions = selectedMass ? Array.from({length:selectedMass.slicesTargeted||0},(_,i)=>i+1) : [];
+
+  const managerField = `
+    <label><span class="lbl">Manager</span>
+      ${logFormManagerMode==='new' ? `
+        <input value="${esc(f.manager)}" onchange="setLogManager(this.value)" placeholder="Type manager name" autofocus>
+        ${state.master.managers.length>0 ? `<button type="button" class="btn ghost" style="margin-top:6px;padding:4px 10px;font-size:12px;" onclick="logFormManagerMode='select'; render();">← Choose from list instead</button>` : ''}
+      ` : `
+        <select onchange="if(this.value==='__new__'){logFormManagerMode='new'; setLogManager(''); } else { setLogManager(this.value); }">
+          <option value="">Select manager...</option>
+          ${state.master.managers.map(m=>`<option value="${esc(m)}" ${f.manager===m?'selected':''}>${esc(m)}</option>`).join('')}
+          <option value="__new__">+ Add new manager</option>
+        </select>
+      `}
+    </label>`;
+
+  if (!logGapResolved){
+    return `
+    <div class="card">
+      <p class="section-title" style="margin-top:0;">Log Daily Progress</p>
+      <div class="grid">
+        <label><span class="lbl">Date</span><input type="date" value="${esc(f.date)}" onchange="setLogDate(this.value)"></label>
+        ${managerField}
+      </div>
+      ${renderGapPrompt()}
+      <button class="btn ghost" onclick="closeLogForm()">Cancel</button>
+    </div>`;
+  }
+
+  return `
+  <div class="card">
+    <p class="section-title" style="margin-top:0;">Log Daily Progress</p>
+    <div class="grid3">
+      <label><span class="lbl">Date</span><input type="date" value="${esc(f.date)}" onchange="setLogDate(this.value)"></label>
+      ${managerField}
+      <label><span class="lbl">Mass ID</span>
+        <select onchange="setLogMass(this.value)">
+          <option value="">Select mass...</option>
+          ${monthTargets.map(t=>`<option value="${esc(t.massId)}" ${f.massId===t.massId?'selected':''}>${esc(t.massId)} (Pit ${esc(t.pitId)})</option>`).join('')}
+        </select>
+      </label>
+      <label><span class="lbl">Pit</span><input value="${esc(f.pitId)}" disabled style="background:#f5f5f4;"></label>
+      <label><span class="lbl">Stage</span>
+        <select onchange="setLogStage(this.value)">
+          ${STAGES.map(s=>`<option value="${s}" ${f.stage===s?'selected':''}>${s}</option>`).join('')}
+        </select>
+      </label>
+      ${PER_SLICE_STAGES.includes(f.stage) ? `
+      <label><span class="lbl">Slice No.</span>
+        <select onchange="logForm.sliceNo=this.value">
+          <option value="">Select slice...</option>
+          ${sliceOptions.map(n=>`<option value="${n}" ${String(f.sliceNo)===String(n)?'selected':''}>S${n}</option>`).join('')}
+        </select>
+      </label>` : ''}
+      <label><span class="lbl">Status</span>
+        <div class="pill-row">
+          <button class="pill ${f.status==='Started'?'active teal':''}" onclick="logForm.status='Started'; render();">Started</button>
+          <button class="pill ${f.status==='Completed'?'active teal':''}" onclick="logForm.status='Completed'; render();">Completed</button>
+        </div>
+      </label>
+    </div>
+    <label><span class="lbl">Remarks (optional)</span><input value="${esc(f.remarks)}" onchange="logForm.remarks=this.value" placeholder="What happened today"></label>
+    <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
+      <input type="checkbox" style="width:auto;" ${f.isCorrection?'checked':''} onchange="logForm.isCorrection=this.checked; render();">
+      <span style="font-size:13px;font-weight:600;color:#57534e;">Correcting a previous entry?</span>
+    </label>
+    ${f.isCorrection ? `<label><span class="lbl">What is this correcting?</span><input value="${esc(f.correctionNote)}" onchange="logForm.correctionNote=this.value" placeholder='e.g. corrects Slice 2 entry from Aug 14 — wrong slice number'></label>` : ''}
+    <button class="btn teal" onclick="submitLog()">Save log entry</button>
+    <button class="btn ghost" onclick="closeLogForm()">Cancel</button>
+    <p class="hint">Marking a stage "Completed" here automatically fills in its Actual date on the Mass Target — that's what drives the Green/Amber/Red status below.</p>
+  </div>`;
+}
+
+function render(){
+  if (state.loading){ document.getElementById('app').innerHTML = '<div class="empty">Loading…</div>'; return; }
+  document.getElementById('roleSelect').value = state.role;
+
+  const monthTargets = state.massTargets.filter(t=>t.month===state.month);
+  const monthLog = state.dailyLog.filter(l=>monthOfDate(l.date)===state.month).slice().sort((a,b)=> b.date.localeCompare(a.date));
+
+  const withStatus = monthTargets.map(t=>({ t, s: computeMassStatus(t) }));
+  const completedCount = withStatus.filter(x=>x.s.status==='Completed').length;
+  const delayed = withStatus.filter(x=>x.s.status==='Amber' || x.s.status==='Red');
+
+  let html = '';
+
+  html += `<p class="section-title">Summary — ${state.month}</p>`;
+  html += `<div class="table-wrap"><table><thead><tr>
+    <th>Mass ID</th><th>Manager</th><th>Status</th><th style="text-align:right;">Delay</th><th></th>
+    </tr></thead><tbody>`;
+  if (withStatus.length === 0){
+    html += `<tr><td colspan="5" class="empty">No Mass Targets set for this month yet — add one below to see its status here.</td></tr>`;
+  } else {
+    withStatus.slice().sort((a,b)=>b.s.delayDays-a.s.delayDays).forEach(({t,s})=>{
+      const onTime = s.status==='Green' || s.status==='Completed';
+      html += `<tr>
+        <td style="font-family:ui-monospace,monospace;">${esc(t.massId)}</td>
+        <td>${esc(t.managerName||'—')}</td>
+        <td><span class="dot ${s.status.toLowerCase()}"></span><span class="badge ${s.status.toLowerCase()==='completed'?'emerald':s.status.toLowerCase()}">${s.status==='Completed' ? 'Completed' : (onTime ? 'On time' : 'Delay')}</span></td>
+        <td class="num" style="color:${s.delayDays>2?'var(--red)':(s.delayDays>0?'var(--amber)':'var(--emerald)')};">${s.delayDays>0 ? s.delayDays+' day'+(s.delayDays===1?'':'s') : '—'}</td>
+        <td><button class="btn ghost" style="padding:5px 10px;font-size:12px;" onclick="expandedMassId = (expandedMassId==='${t.id}') ? null : '${t.id}'; render();">${expandedMassId===t.id ? 'Hide' : 'View'} Target vs Achievement</button></td>
+      </tr>`;
+      if (expandedMassId === t.id){
+        html += `<tr><td colspan="5" style="background:#fafaf9;">${renderTargetVsAchievement(t)}</td></tr>`;
+      }
+    });
+  }
+  html += `</tbody></table></div>`;
+
+  html += `<p class="section-title">Mass Targets</p>`;
+  if (targetForm){
+    html += renderTargetForm();
+  } else {
+    html += `<button class="btn teal" onclick="openTargetForm(null)" style="margin-bottom:16px;">+ Add Mass Target</button>`;
+  }
+
+  html += `<div class="table-wrap"><table><thead><tr>
+    <th>Mass ID</th><th>Pit</th><th>Manager</th><th style="text-align:right;">Slices</th><th>Current Stage</th><th>Status</th><th>Progress</th><th></th>
+    </tr></thead><tbody>`;
+  if (withStatus.length === 0){
+    html += `<tr><td colspan="8" class="empty">No Mass Targets set for this month yet.</td></tr>`;
+  } else {
+    withStatus.forEach(({t,s})=>{
+      html += `<tr>
+        <td style="font-family:ui-monospace,monospace;">${esc(t.massId)}</td>
+        <td><span class="badge stone">${esc(t.pitId)}</span></td>
+        <td>${esc(t.managerName||'—')}</td>
+        <td class="num">${t.slicesTargeted||0}</td>
+        <td>${esc(s.currentStage)}</td>
+        <td><span class="dot ${s.status.toLowerCase()}"></span><span class="badge ${s.status.toLowerCase()==='completed'?'emerald':s.status.toLowerCase()}">${s.status}</span></td>
+        <td>${s.doneCount}/${s.totalCount}</td>
+        <td><div class="actions">
+          <button class="icon-btn" onclick="openTargetForm('${t.id}')" title="Edit">✏️</button>
+          ${state.role==='Admin' ? `<button class="icon-btn danger" onclick="deleteTarget('${t.id}')" title="Delete">🗑️</button>` : ''}
+        </div></td>
+      </tr>`;
+    });
+  }
+  html += `</tbody></table></div>`;
+
+  html += `<p class="section-title">Daily Progress Log</p>`;
+  if (logForm){
+    html += renderLogForm();
+  } else {
+    html += `<button class="btn teal" onclick="openLogForm()" style="margin-bottom:16px;" ${monthTargets.length===0?'disabled title="Add a Mass Target first"':''}>+ Log today's progress</button>`;
+  }
+
+  html += renderLogViewer();
+
+  html += `<div class="table-wrap"><table><thead><tr>
+    <th>Date</th><th>Manager</th><th>Pit</th><th>Mass ID</th><th>Stage</th><th>Slice</th><th>Status</th><th>Remarks</th><th></th>
+    </tr></thead><tbody>`;
+  if (monthLog.length === 0){
+    html += `<tr><td colspan="9" class="empty">No progress logged this month yet.</td></tr>`;
+  } else {
+    monthLog.forEach(l=>{
+      if (l.entryType === 'ignored' || l.entryType === 'remark'){
+        html += `<tr>
+          <td>${esc(l.date)}</td>
+          <td>${esc(l.manager||'—')}</td>
+          <td colspan="4"><span class="badge ${l.entryType==='ignored'?'stone':'amber'}">${l.entryType==='ignored'?'Missed day — ignored':'Missed day — remark'}</span></td>
+          <td>—</td>
+          <td style="color:#78716c;font-size:12px;">${esc(l.remarks||'—')}</td>
+          <td>${state.role==='Admin' ? `<button class="icon-btn danger" onclick="deleteLog('${l.id}')" title="Delete">🗑️</button>` : ''}</td>
+        </tr>`;
+        return;
+      }
+      html += `<tr>
+        <td>${esc(l.date)}</td>
+        <td>${esc(l.manager||'—')}</td>
+        <td><span class="badge stone">${esc(l.pitId)}</span></td>
+        <td style="font-family:ui-monospace,monospace;">${esc(l.massId)}</td>
+        <td>${esc(l.stage)}</td>
+        <td>${l.sliceNo ? 'S'+esc(l.sliceNo) : '—'}</td>
+        <td><span class="badge ${l.status==='Completed'?'emerald':'amber'}">${esc(l.status)}</span></td>
+        <td style="color:#78716c;font-size:12px;">
+          ${l.isCorrection ? `<span class="badge red">Correction</span> ${esc(l.correctionNote||'')}<br>` : ''}${esc(l.remarks||(l.isCorrection?'':'—'))}
+        </td>
+        <td>${state.role==='Admin' ? `<button class="icon-btn danger" onclick="deleteLog('${l.id}')" title="Delete">🗑️</button>` : ''}</td>
+      </tr>`;
+    });
+  }
+  html += `</tbody></table></div>`;
+
+  document.getElementById('app').innerHTML = html;
+  refreshDatalists();
+}
+</script>
+</body>
+</html>
