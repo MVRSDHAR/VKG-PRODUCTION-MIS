@@ -69,6 +69,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 </head>
 <body>
 
@@ -631,15 +632,8 @@ function renderFullCaptureBlock(withStatus){
   }
   inner += `</tbody></table>`;
 
-  inner += `<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.5px;color:#57534e;margin:0 0 10px;">Target vs Achievement — All Masses</h3>`;
-  if (withStatus.length===0){
-    inner += `<p style="font-size:13px;color:#a8a29e;">No masses to show.</p>`;
-  } else {
-    withStatus.forEach(({t})=>{ inner += renderTargetVsAchievement(t); });
-  }
-
-  inner += `<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.5px;color:#57534e;margin:20px 0 10px;">Today's Progress — ${esc(todayStr)}</h3>`;
-  inner += `<table class="slice-table" style="width:100%;"><thead><tr>
+  inner += `<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.5px;color:#57534e;margin:0 0 10px;">Today's Progress — ${esc(todayStr)}</h3>`;
+  inner += `<table class="slice-table" style="width:100%;margin-bottom:20px;"><thead><tr>
     <th>Manager</th><th>Mass ID</th><th>Stage</th><th>Status</th><th>Remarks</th></tr></thead><tbody>`;
   if (todayEntries.length===0){
     inner += `<tr><td colspan="5" style="text-align:center;color:#a8a29e;padding:12px;">No progress logged today yet.</td></tr>`;
@@ -664,6 +658,14 @@ function renderFullCaptureBlock(withStatus){
   }
   inner += `</tbody></table>`;
 
+  inner += `<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.5px;color:#57534e;margin:0 0 10px;">Target vs Achievement — All Masses</h3>`;
+  if (withStatus.length===0){
+    inner += `<p style="font-size:13px;color:#a8a29e;">No masses to show.</p>`;
+  } else {
+    withStatus.forEach(({t})=>{ inner += renderTargetVsAchievement(t); });
+  }
+  inner += `</tbody></table>`;
+
   return `<div id="summaryCaptureFull" style="position:absolute;left:-9999px;top:0;width:820px;background:#fff;padding:24px;font-family:inherit;color:#1c1917;">${inner}</div>`;
 }
 
@@ -681,6 +683,40 @@ async function downloadSummaryImage(){
   } catch(e){
     console.error(e);
     alert('Could not generate the image — please try again.');
+  }
+}
+
+async function downloadSummaryPDF(){
+  if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined'){ alert('PDF export library did not load — check your internet connection and try again.'); return; }
+  const el = document.getElementById('summaryCaptureFull');
+  if (!el){ alert('Nothing to capture yet.'); return; }
+  try {
+    const canvas = await html2canvas(el, { backgroundColor: '#ffffff', scale: 2 });
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF('p', 'pt', 'a4');
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const imgWidth = pageWidth;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    const imgData = canvas.toDataURL('image/png');
+
+    let heightLeft = imgHeight;
+    let position = 0;
+    pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+    heightLeft -= pageHeight;
+
+    while (heightLeft > 0){
+      position = heightLeft - imgHeight;
+      pdf.addPage();
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pageHeight;
+    }
+
+    pdf.save(`VKG_Production_Summary_${state.month}.pdf`);
+    flash('Summary PDF downloaded');
+  } catch(e){
+    console.error(e);
+    alert('Could not generate the PDF — please try again.');
   }
 }
 
@@ -933,7 +969,10 @@ function render(){
   let html = '';
 
   html += `<p class="section-title">Summary — ${state.month}</p>`;
-  html += `<button class="btn teal" onclick="downloadSummaryImage()" style="margin-bottom:10px;">📷 Download Summary as Image</button>`;
+  html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+    <button class="btn teal" onclick="downloadSummaryImage()">📷 Download as Image</button>
+    <button class="btn teal" onclick="downloadSummaryPDF()">📄 Download as PDF</button>
+  </div>`;
   html += `<div class="table-wrap"><table><thead><tr>
     <th>Mass ID</th><th>Manager</th><th>Status</th><th style="text-align:right;">Delay</th><th></th>
     </tr></thead><tbody>`;
