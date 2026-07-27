@@ -68,6 +68,7 @@
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
 <body>
 
@@ -148,6 +149,7 @@ let logFormManagerMode = 'select';
 let logGapDates = [];
 let logGapResolved = true;
 let logGapMode = null;
+let catchUpTarget = null;
 let logViewFrom = null;
 let logViewTo = null;
 let expandedMassId = null;
@@ -439,11 +441,19 @@ function blankLog(){ return { date: today(), manager:'', pitId:'', massId:'', st
 function openLogForm(){
   logForm = blankLog();
   logFormManagerMode = state.master.managers.length>0 ? 'select' : 'new';
-  logGapDates = []; logGapResolved = true; logGapMode = null;
+  logGapDates = []; logGapResolved = true; logGapMode = null; catchUpTarget = null;
   render();
   window.scrollTo({top:0,behavior:'smooth'});
 }
-function closeLogForm(){ logForm = null; render(); }
+function startLogForDate(dateStr){
+  logForm = blankLog();
+  logForm.date = dateStr;
+  logFormManagerMode = state.master.managers.length>0 ? 'select' : 'new';
+  logGapDates = []; logGapResolved = true; logGapMode = null; catchUpTarget = null;
+  render();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function closeLogForm(){ logForm = null; catchUpTarget = null; render(); }
 function setLogMass(massId){
   logForm.massId = massId;
   const t = state.massTargets.find(x=>x.massId===massId && x.month===state.month);
@@ -468,7 +478,11 @@ function setLogStage(stage){ logForm.stage = stage; logForm.sliceNo = ''; render
 
 // ---- Missed-day detection, scoped to the current month per manager ----
 function isDayCovered(manager, dateStr){
-  return state.dailyLog.some(l => l.manager === manager && l.date === dateStr);
+  return state.dailyLog.some(l => {
+    if (l.manager !== manager) return false;
+    if (l.entryType === 'remark' && l.dateTo) return dateStr >= l.date && dateStr <= l.dateTo;
+    return l.date === dateStr;
+  });
 }
 function computeGapDates(manager, targetDate){
   if (!manager || !targetDate) return [];
@@ -504,9 +518,12 @@ async function resolveGapIgnore(){
   render();
 }
 function resolveGapFillData(){
+  // Sequential catch-up: remember the day they actually wanted to log, then walk them
+  // through each missed day one at a time. submitLog() advances this automatically.
+  catchUpTarget = logForm.date;
   logForm.date = logGapDates[0];
   logGapResolved = true; logGapMode = null;
-  flash('Date set to ' + logForm.date + ' — fill it in below, then repeat for the next missed day');
+  flash(`Filling ${logGapDates.length} missed day${logGapDates.length===1?'':'s'} — starting with ${logForm.date}`);
   render();
 }
 async function resolveGapRemark(){
@@ -514,12 +531,12 @@ async function resolveGapRemark(){
   const text = input ? input.value.trim() : '';
   if (!text){ alert('Please enter a remark.'); return; }
   const manager = logForm.manager;
-  const recs = logGapDates.map(d => ({ id: uid(), date:d, manager, entryType:'remark', pitId:'', massId:'', stage:'', sliceNo:'', status:'', remarks:text, createdBy: state.role, createdAt: new Date().toISOString() }));
-  state.dailyLog = [...state.dailyLog, ...recs];
+  const rec = { id: uid(), date: logGapDates[0], dateTo: logGapDates[logGapDates.length-1], manager, entryType:'remark', pitId:'', massId:'', stage:'', sliceNo:'', status:'', remarks:text, createdBy: state.role, createdAt: new Date().toISOString() };
+  state.dailyLog = [...state.dailyLog, rec];
   await saveKey(KEYS.DAILYLOG, state.dailyLog);
-  recs.forEach(sendToSheet);
+  sendToSheet(rec);
   logGapResolved = true; logGapMode = null;
-  flash('Remark recorded for missed days');
+  flash('One remark recorded for the whole missed period');
   render();
 }
 
@@ -552,6 +569,31 @@ async function submitLog(){
       await saveKey(KEYS.MASSTARGETS, state.massTargets);
     }
   }
+  if (catchUpTarget){
+    const manager = f.manager;
+    const remainingGaps = computeGapDates(manager, catchUpTarget);
+    if (remainingGaps.length > 0){
+      logForm = blankLog();
+      logForm.manager = manager;
+      logForm.date = remainingGaps[0];
+      logFormManagerMode = 'select';
+      flash(`Saved. ${remainingGaps.length} more missed day${remainingGaps.length===1?'':'s'} to go — now on ${logForm.date}`);
+      render();
+      window.scrollTo({top:0,behavior:'smooth'});
+      return;
+    } else {
+      const target = catchUpTarget;
+      catchUpTarget = null;
+      logForm = blankLog();
+      logForm.manager = f.manager;
+      logForm.date = target;
+      logFormManagerMode = 'select';
+      flash('All caught up! Now log your entry for ' + target);
+      render();
+      window.scrollTo({top:0,behavior:'smooth'});
+      return;
+    }
+  }
   flash('Progress logged');
   logForm = null;
   render();
@@ -563,6 +605,83 @@ async function deleteLog(id){
   await saveKey(KEYS.DAILYLOG, state.dailyLog);
   flash('Log entry deleted');
   render();
+}
+
+function renderFullCaptureBlock(withStatus){
+  const todayStr = today();
+  const todayEntries = state.dailyLog.filter(l => l.date===todayStr || (l.dateTo && todayStr>=l.date && todayStr<=l.dateTo));
+
+  let inner = `<h2 style="margin:0 0 4px;font-size:18px;font-family:inherit;">VKG Production Summary</h2>`;
+  inner += `<p style="margin:0 0 16px;font-size:12px;color:#78716c;">${esc(state.month)} — generated ${esc(todayStr)}</p>`;
+
+  inner += `<table class="slice-table" style="width:100%;margin-bottom:20px;"><thead><tr>
+    <th>Mass ID</th><th>Manager</th><th>Status</th><th style="text-align:right;">Delay</th></tr></thead><tbody>`;
+  if (withStatus.length===0){
+    inner += `<tr><td colspan="4" style="text-align:center;color:#a8a29e;padding:12px;">No Mass Targets set for this month.</td></tr>`;
+  } else {
+    withStatus.slice().sort((a,b)=>b.s.delayDays-a.s.delayDays).forEach(({t,s})=>{
+      const onTime = s.status==='Green' || s.status==='Completed';
+      inner += `<tr>
+        <td style="font-weight:600;">${esc(t.massId)}</td>
+        <td>${esc(t.managerName||'—')}</td>
+        <td><span class="dot ${s.status.toLowerCase()}"></span><span class="badge ${s.status.toLowerCase()==='completed'?'emerald':s.status.toLowerCase()}">${s.status==='Completed' ? 'Completed' : (onTime ? 'On time' : 'Delay')}</span></td>
+        <td style="text-align:right;color:${s.delayDays>2?'var(--red)':(s.delayDays>0?'var(--amber)':'var(--emerald)')};">${s.delayDays>0 ? s.delayDays+' day'+(s.delayDays===1?'':'s') : '—'}</td>
+      </tr>`;
+    });
+  }
+  inner += `</tbody></table>`;
+
+  inner += `<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.5px;color:#57534e;margin:0 0 10px;">Target vs Achievement — All Masses</h3>`;
+  if (withStatus.length===0){
+    inner += `<p style="font-size:13px;color:#a8a29e;">No masses to show.</p>`;
+  } else {
+    withStatus.forEach(({t})=>{ inner += renderTargetVsAchievement(t); });
+  }
+
+  inner += `<h3 style="font-size:13px;text-transform:uppercase;letter-spacing:0.5px;color:#57534e;margin:20px 0 10px;">Today's Progress — ${esc(todayStr)}</h3>`;
+  inner += `<table class="slice-table" style="width:100%;"><thead><tr>
+    <th>Manager</th><th>Mass ID</th><th>Stage</th><th>Status</th><th>Remarks</th></tr></thead><tbody>`;
+  if (todayEntries.length===0){
+    inner += `<tr><td colspan="5" style="text-align:center;color:#a8a29e;padding:12px;">No progress logged today yet.</td></tr>`;
+  } else {
+    todayEntries.forEach(l=>{
+      if (l.entryType==='ignored' || l.entryType==='remark'){
+        inner += `<tr>
+          <td>${esc(l.manager||'—')}</td>
+          <td colspan="2"><span class="badge ${l.entryType==='ignored'?'stone':'amber'}">${l.entryType==='ignored'?'Missed — Ignored':'Missed — Remark'}</span></td>
+          <td>—</td><td>${esc(l.remarks||'—')}</td>
+        </tr>`;
+      } else {
+        inner += `<tr>
+          <td>${esc(l.manager||'—')}</td>
+          <td style="font-weight:600;">${esc(l.massId)}</td>
+          <td>${esc(l.stage)}${l.sliceNo?' (S'+esc(l.sliceNo)+')':''}</td>
+          <td><span class="badge ${l.status==='Completed'?'emerald':'amber'}">${esc(l.status)}</span></td>
+          <td>${esc(l.remarks||'—')}</td>
+        </tr>`;
+      }
+    });
+  }
+  inner += `</tbody></table>`;
+
+  return `<div id="summaryCaptureFull" style="position:absolute;left:-9999px;top:0;width:820px;background:#fff;padding:24px;font-family:inherit;color:#1c1917;">${inner}</div>`;
+}
+
+async function downloadSummaryImage(){
+  if (typeof html2canvas === 'undefined'){ alert('Image export library did not load — check your internet connection and try again.'); return; }
+  const el = document.getElementById('summaryCaptureFull');
+  if (!el){ alert('Nothing to capture yet.'); return; }
+  try {
+    const canvas = await html2canvas(el, { backgroundColor: '#ffffff', scale: 2 });
+    const link = document.createElement('a');
+    link.download = `VKG_Production_Summary_${state.month}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+    flash('Summary image downloaded');
+  } catch(e){
+    console.error(e);
+    alert('Could not generate the image — please try again.');
+  }
 }
 
 function downloadExcel(){
@@ -584,10 +703,13 @@ function downloadExcel(){
   });
 
   const logRows = state.dailyLog
-    .filter(l => monthOfDate(l.date)===state.month && l.date>=from && l.date<=to)
+    .filter(l => {
+      const entryEnd = l.dateTo || l.date;
+      return l.date <= to && entryEnd >= from;
+    })
     .sort((a,b)=> a.date.localeCompare(b.date))
     .map(l => ({
-      'Date': l.date, 'Manager': l.manager||'', 'Pit': l.pitId||'', 'Mass ID': l.massId||'',
+      'Date': l.date, 'Date To (if a range)': l.dateTo||'', 'Manager': l.manager||'', 'Pit': l.pitId||'', 'Mass ID': l.massId||'',
       'Stage': l.stage||'', 'Slice No': l.sliceNo||'', 'Status': l.status||'',
       'Entry Type': (!l.entryType || l.entryType==='work') ? 'Work' : (l.entryType==='ignored' ? 'Missed — Ignored' : 'Missed — Remark'),
       'Remarks': l.remarks||'', 'Correction?': l.isCorrection ? 'Yes' : 'No', 'Correction Note': l.correctionNote||''
@@ -607,21 +729,44 @@ function getDefaultViewDate(){
 function setLogViewFrom(v){ logViewFrom = v; render(); }
 function setLogViewTo(v){ logViewTo = v; render(); }
 function resetLogView(){ logViewFrom = null; logViewTo = null; render(); }
+let viewerRemarkOpen = false;
+let viewerRemarkManager = '';
+let viewerRemarkManagerMode = 'select';
+let viewerRemarkText = '';
+function openViewerRemark(){ viewerRemarkOpen = true; viewerRemarkManagerMode = state.master.managers.length>0 ? 'select' : 'new'; viewerRemarkText=''; render(); }
+function closeViewerRemark(){ viewerRemarkOpen = false; render(); }
+async function submitViewerRemark(from, to){
+  if (!viewerRemarkManager){ alert('Please select a manager.'); return; }
+  if (!viewerRemarkText.trim()){ alert('Please enter a remark.'); return; }
+  const rec = { id: uid(), date: from, dateTo: to, manager: viewerRemarkManager, entryType:'remark', pitId:'', massId:'', stage:'', sliceNo:'', status:'', remarks: viewerRemarkText.trim(), createdBy: state.role, createdAt: new Date().toISOString() };
+  state.dailyLog = [...state.dailyLog, rec];
+  await saveKey(KEYS.DAILYLOG, state.dailyLog);
+  sendToSheet(rec);
+  if (!state.master.managers.includes(viewerRemarkManager)){ state.master.managers=[...state.master.managers, viewerRemarkManager]; await saveKey(KEYS.MASTER, state.master); }
+  viewerRemarkOpen = false; viewerRemarkManager=''; viewerRemarkText='';
+  flash('Remark saved for the period');
+  render();
+}
 
 function renderLogViewer(){
   const defaultDate = getDefaultViewDate();
   const isDefault = !logViewFrom;
   const from = logViewFrom || defaultDate;
   const to = logViewTo || from;
-  const results = from ? state.dailyLog.filter(l => monthOfDate(l.date)===state.month && l.date>=from && l.date<=to)
-                          .sort((a,b)=>b.date.localeCompare(a.date)) : [];
+  const isRange = from && to && from !== to;
+  const results = from ? state.dailyLog.filter(l => {
+    if (monthOfDate(l.date) !== state.month && monthOfDate(l.dateTo||l.date) !== state.month) return false;
+    const entryEnd = l.dateTo || l.date;
+    return l.date <= to && entryEnd >= from; // any overlap with the selected window
+  }).sort((a,b)=>b.date.localeCompare(a.date)) : [];
 
   const rowsHtml = results.length===0 ? `<tr><td colspan="6" class="empty">No entries in this period.</td></tr>` :
     results.map(l=>{
       if (l.entryType==='ignored' || l.entryType==='remark'){
+        const dateLabel = l.dateTo && l.dateTo !== l.date ? `${esc(l.date)} – ${esc(l.dateTo)}` : esc(l.date);
         return `<tr>
-          <td>${esc(l.date)}</td><td>${esc(l.manager||'—')}</td>
-          <td colspan="3"><span class="badge ${l.entryType==='ignored'?'stone':'amber'}">${l.entryType==='ignored'?'Missed day — ignored':'Missed day — remark'}</span></td>
+          <td>${dateLabel}</td><td>${esc(l.manager||'—')}</td>
+          <td colspan="3"><span class="badge ${l.entryType==='ignored'?'stone':'amber'}">${l.entryType==='ignored'?'Missed day — ignored':'Missed period — remark'}</span></td>
           <td style="color:#78716c;font-size:12px;">${esc(l.remarks||'—')}</td>
         </tr>`;
       }
@@ -634,6 +779,27 @@ function renderLogViewer(){
       </tr>`;
     }).join('');
 
+  const remarkForm = !viewerRemarkOpen ? '' : `
+    <div class="subcard" style="border-color:var(--amber);">
+      <div class="subtitle">Add one remark covering ${esc(from)}${isRange?' to '+esc(to):''}</div>
+      <div class="grid">
+        <label><span class="lbl">Manager</span>
+          ${viewerRemarkManagerMode==='new' ? `
+            <input onchange="viewerRemarkManager=this.value" placeholder="Type manager name" autofocus>
+          ` : `
+            <select onchange="if(this.value==='__new__'){viewerRemarkManagerMode='new'; viewerRemarkManager=''; render();} else { viewerRemarkManager=this.value; }">
+              <option value="">Select manager...</option>
+              ${state.master.managers.map(m=>`<option value="${esc(m)}" ${viewerRemarkManager===m?'selected':''}>${esc(m)}</option>`).join('')}
+              <option value="__new__">+ Add new manager</option>
+            </select>
+          `}
+        </label>
+        <label><span class="lbl">Remark</span><input onchange="viewerRemarkText=this.value" placeholder="e.g. Quarry closed" value="${esc(viewerRemarkText)}"></label>
+      </div>
+      <button class="btn teal" onclick="submitViewerRemark('${esc(from)}','${esc(to)}')">Save remark</button>
+      <button class="btn ghost" onclick="closeViewerRemark()">Cancel</button>
+    </div>`;
+
   return `
   <div class="card">
     <p class="section-title" style="margin-top:0;">Work Log by Date</p>
@@ -642,7 +808,12 @@ function renderLogViewer(){
       <label><span class="lbl">To (optional — leave blank for a single day)</span><input type="date" value="${esc(logViewTo||'')}" onchange="setLogViewTo(this.value)"></label>
       <div style="display:flex;align-items:flex-end;"><button class="btn ghost" style="margin-bottom:12px;" onclick="resetLogView()">Reset to latest</button></div>
     </div>
-    <button class="btn teal" onclick="downloadExcel()" style="margin-bottom:8px;">⬇ Download Excel (Monthly Summary + this date range)</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
+      ${!isRange ? `<button class="btn teal" onclick="startLogForDate('${esc(from||today())}')">+ Log work for ${esc(from||'this date')}</button>` : ''}
+      <button class="btn ${isRange?'teal':'ghost'}" onclick="openViewerRemark()">+ Add remark for ${isRange?'this period':'this date'}</button>
+      <button class="btn teal" onclick="downloadExcel()">⬇ Download Excel (Monthly Summary + this range)</button>
+    </div>
+    ${remarkForm}
     <p class="hint" style="margin-top:-4px;">${isDefault ? (defaultDate ? `Showing the most recently logged date (${esc(defaultDate)}) by default.` : 'No entries logged yet this month.') : `Showing ${esc(from)}${to!==from?' to '+esc(to):''}.`}</p>
     <div class="table-wrap">
       <table><thead><tr><th>Date</th><th>Manager</th><th>Mass ID</th><th>Stage</th><th>Status</th><th>Remarks</th></tr></thead>
@@ -762,6 +933,7 @@ function render(){
   let html = '';
 
   html += `<p class="section-title">Summary — ${state.month}</p>`;
+  html += `<button class="btn teal" onclick="downloadSummaryImage()" style="margin-bottom:10px;">📷 Download Summary as Image</button>`;
   html += `<div class="table-wrap"><table><thead><tr>
     <th>Mass ID</th><th>Manager</th><th>Status</th><th style="text-align:right;">Delay</th><th></th>
     </tr></thead><tbody>`;
@@ -783,6 +955,7 @@ function render(){
     });
   }
   html += `</tbody></table></div>`;
+  html += renderFullCaptureBlock(withStatus);
 
   html += `<p class="section-title">Mass Targets</p>`;
   if (targetForm){
@@ -832,10 +1005,11 @@ function render(){
   } else {
     monthLog.forEach(l=>{
       if (l.entryType === 'ignored' || l.entryType === 'remark'){
+        const dateLabel = l.dateTo && l.dateTo !== l.date ? `${esc(l.date)} – ${esc(l.dateTo)}` : esc(l.date);
         html += `<tr>
-          <td>${esc(l.date)}</td>
+          <td>${dateLabel}</td>
           <td>${esc(l.manager||'—')}</td>
-          <td colspan="4"><span class="badge ${l.entryType==='ignored'?'stone':'amber'}">${l.entryType==='ignored'?'Missed day — ignored':'Missed day — remark'}</span></td>
+          <td colspan="4"><span class="badge ${l.entryType==='ignored'?'stone':'amber'}">${l.entryType==='ignored'?'Missed day — ignored':'Missed period — remark'}</span></td>
           <td>—</td>
           <td style="color:#78716c;font-size:12px;">${esc(l.remarks||'—')}</td>
           <td>${state.role==='Admin' ? `<button class="icon-btn danger" onclick="deleteLog('${l.id}')" title="Delete">🗑️</button>` : ''}</td>
