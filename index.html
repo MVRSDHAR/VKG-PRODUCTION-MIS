@@ -231,6 +231,41 @@ function computeMassStatus(m){
   return { status, delayDays: maxDelay, currentStage, doneCount, totalCount };
 }
 
+// Completion date = the latest Actual date across every activity, once the mass is fully done.
+function computeMassCompletionDate(m){
+  const dates = [m.boreWiresawActual];
+  (m.slices||[]).forEach(s=>{ dates.push(s.dropActual, s.splitActual, s.removalActual); });
+  const valid = dates.filter(Boolean);
+  if (valid.length===0) return '';
+  return valid.sort().slice(-1)[0];
+}
+
+function renderHeadlineSummary(){
+  const rows = state.massTargets.slice().sort((a,b) => (a.boreWiresawActualStart||'9999').localeCompare(b.boreWiresawActualStart||'9999'));
+  const rowsHtml = rows.length===0 ? `<tr><td colspan="5" class="empty">No Mass Targets recorded yet.</td></tr>` :
+    rows.map(t=>{
+      const s = computeMassStatus(t);
+      const completionDate = s.status==='Completed' ? computeMassCompletionDate(t) : '';
+      return `<tr>
+        <td style="font-family:ui-monospace,monospace;">${esc(t.massId)}</td>
+        <td>${esc(t.boreWiresawActualStart||'—')}</td>
+        <td>${completionDate ? esc(completionDate) : `<span class="badge amber">In progress</span>`}</td>
+        <td class="num">${esc(t.volumeCBM||'—')}</td>
+        <td>${esc(t.customerName||'—')}</td>
+      </tr>`;
+    }).join('');
+
+  return `
+  <div class="card">
+    <p class="section-title" style="margin-top:0;">Headline Summary \u2014 All Masses, Every Month</p>
+    <p class="hint" style="margin-top:-4px;margin-bottom:10px;">Tracks masses across the months they actually span \u2014 not limited to the month picker above. Useful when a mass starts in one month and finishes in a later one.</p>
+    <div class="table-wrap">
+      <table><thead><tr><th>Mass ID</th><th>Actual Start (Bore &amp; Wiresaw)</th><th>Completion Date</th><th style="text-align:right;">Volume (CBM)</th><th>Customer Name</th></tr></thead>
+      <tbody>${rowsHtml}</tbody></table>
+    </div>
+  </div>`;
+}
+
 function renderTargetVsAchievement(t){
   const rows = [];
   rows.push({ label:'Bore & Wiresaw', plannedStart:t.boreWiresawStart, plannedEnd:t.boreWiresawEnd, actual:t.boreWiresawActual });
@@ -272,7 +307,8 @@ function renderTargetVsAchievement(t){
 
 function blankTarget(){
   return { id:null, month: state.month, massId:'', pitId:'', managerName:'', slicesTargeted:'', massDimension:'', sliceDimension:'',
-    boreWiresawStart:'', boreWiresawEnd:'', boreWiresawActual:'', slices:[] };
+    volumeCBM:'', customerName:'',
+    boreWiresawStart:'', boreWiresawEnd:'', boreWiresawActualStart:'', boreWiresawActual:'', slices:[] };
 }
 function openTargetForm(id){
   const existing = id ? state.massTargets.find(t=>t.id===id) : null;
@@ -386,16 +422,19 @@ function renderTargetForm(){
         <label><span class="lbl">Number of slices targeted</span><input type="number" min="0" step="1" value="${esc(f.slicesTargeted)}" onchange="targetForm.slicesTargeted=this.value; syncSliceCount();"></label>
         <label><span class="lbl">Mass dimension</span><input value="${esc(f.massDimension)}" onchange="targetForm.massDimension=this.value" placeholder="e.g. 12 x 6 x 5 ft"></label>
         <label><span class="lbl">Slice dimension</span><input value="${esc(f.sliceDimension)}" onchange="targetForm.sliceDimension=this.value" placeholder="e.g. 12 x 6 x 2 in"></label>
+        <label><span class="lbl">Volume (CBM)</span><input value="${esc(f.volumeCBM)}" onchange="targetForm.volumeCBM=this.value" placeholder="Free text"></label>
+        <label><span class="lbl">Customer name</span><input value="${esc(f.customerName)}" onchange="targetForm.customerName=this.value" placeholder="Free text"></label>
       </div>
     </div>
     <div class="subcard">
       <div class="subtitle">Bore &amp; Wiresaw</div>
       <div class="table-wrap">
         <table class="slice-table">
-          <thead><tr><th>Planned Start</th><th>Planned End</th><th>Actual End</th></tr></thead>
+          <thead><tr><th>Planned Start</th><th>Planned End</th><th>Actual Start</th><th>Actual End</th></tr></thead>
           <tbody><tr>
             <td><input type="date" value="${esc(f.boreWiresawStart)}" onchange="targetForm.boreWiresawStart=this.value"></td>
             <td><input type="date" value="${esc(f.boreWiresawEnd)}" onchange="targetForm.boreWiresawEnd=this.value"></td>
+            <td><input type="date" value="${esc(f.boreWiresawActualStart)}" onchange="targetForm.boreWiresawActualStart=this.value"></td>
             <td><input type="date" value="${esc(f.boreWiresawActual)}" onchange="targetForm.boreWiresawActual=this.value"></td>
           </tr></tbody>
         </table>
@@ -553,22 +592,22 @@ async function submitLog(){
   await saveKey(KEYS.DAILYLOG, state.dailyLog);
   sendToSheet(rec);
 
-  if (f.status === 'Completed'){
-    const idx = state.massTargets.findIndex(t=>t.massId===f.massId && t.month===monthOfDate(f.date));
-    if (idx >= 0){
-      const t = state.massTargets[idx];
-      if (f.stage === 'Bore & Wiresaw') t.boreWiresawActual = f.date;
-      else {
-        const s = (t.slices||[]).find(x=>x.sliceNo===Number(f.sliceNo));
-        if (s){
-          if (f.stage === 'Slice Drop') s.dropActual = f.date;
-          else if (f.stage === 'Slice Splitting') s.splitActual = f.date;
-          else if (f.stage === 'Slice Removal') s.removalActual = f.date;
-        }
+  const idx = state.massTargets.findIndex(t=>t.massId===f.massId);
+  if (idx >= 0){
+    const t = state.massTargets[idx];
+    if (f.stage === 'Bore & Wiresaw'){
+      if (f.status === 'Started' && !t.boreWiresawActualStart) t.boreWiresawActualStart = f.date;
+      if (f.status === 'Completed') t.boreWiresawActual = f.date;
+    } else if (f.status === 'Completed'){
+      const s = (t.slices||[]).find(x=>x.sliceNo===Number(f.sliceNo));
+      if (s){
+        if (f.stage === 'Slice Drop') s.dropActual = f.date;
+        else if (f.stage === 'Slice Splitting') s.splitActual = f.date;
+        else if (f.stage === 'Slice Removal') s.removalActual = f.date;
       }
-      state.massTargets[idx] = t;
-      await saveKey(KEYS.MASSTARGETS, state.massTargets);
     }
+    state.massTargets[idx] = t;
+    await saveKey(KEYS.MASSTARGETS, state.massTargets);
   }
   if (catchUpTarget){
     const manager = f.manager;
@@ -731,10 +770,11 @@ function downloadExcel(){
   const summaryRows = monthTargets.map(t=>{
     const s = computeMassStatus(t);
     return {
-      'Mass ID': t.massId, 'Pit': t.pitId, 'Manager': t.managerName||'',
+      'Mass ID': t.massId, 'Pit': t.pitId, 'Manager': t.managerName||'', 'Customer Name': t.customerName||'', 'Volume (CBM)': t.volumeCBM||'',
       'Slices Targeted': t.slicesTargeted||0, 'Mass Dimension': t.massDimension||'', 'Slice Dimension': t.sliceDimension||'',
-      'Bore & Wiresaw — Planned Start': t.boreWiresawStart||'', 'Planned End': t.boreWiresawEnd||'', 'Actual End': t.boreWiresawActual||'',
-      'Current Stage': s.currentStage, 'Status': s.status, 'Delay (days)': s.delayDays, 'Progress (activities done)': `${s.doneCount}/${s.totalCount}`
+      'Bore & Wiresaw — Planned Start': t.boreWiresawStart||'', 'Planned End': t.boreWiresawEnd||'', 'Actual Start': t.boreWiresawActualStart||'', 'Actual End': t.boreWiresawActual||'',
+      'Current Stage': s.currentStage, 'Status': s.status, 'Delay (days)': s.delayDays, 'Progress (activities done)': `${s.doneCount}/${s.totalCount}`,
+      'Completion Date': s.status==='Completed' ? computeMassCompletionDate(t) : ''
     };
   });
 
@@ -766,6 +806,7 @@ function setLogViewFrom(v){ logViewFrom = v; render(); }
 function setLogViewTo(v){ logViewTo = v; render(); }
 function resetLogView(){ logViewFrom = null; logViewTo = null; render(); }
 let viewerRemarkOpen = false;
+let showHeadlineSummary = false;
 let viewerRemarkManager = '';
 let viewerRemarkManagerMode = 'select';
 let viewerRemarkText = '';
@@ -880,7 +921,7 @@ function renderGapPrompt(){
 
 function renderLogForm(){
   const f = logForm;
-  const monthTargets = state.massTargets.filter(t=>t.month===state.month);
+  const monthTargets = state.massTargets.filter(t=>computeMassStatus(t).status !== 'Completed');
   const selectedMass = monthTargets.find(t=>t.massId===f.massId);
   const sliceOptions = selectedMass ? Array.from({length:selectedMass.slicesTargeted||0},(_,i)=>i+1) : [];
 
@@ -920,7 +961,7 @@ function renderLogForm(){
       <label><span class="lbl">Mass ID</span>
         <select onchange="setLogMass(this.value)">
           <option value="">Select mass...</option>
-          ${monthTargets.map(t=>`<option value="${esc(t.massId)}" ${f.massId===t.massId?'selected':''}>${esc(t.massId)} (Pit ${esc(t.pitId)})</option>`).join('')}
+          ${monthTargets.map(t=>`<option value="${esc(t.massId)}" ${f.massId===t.massId?'selected':''}>${esc(t.massId)} (Pit ${esc(t.pitId)}, started ${esc(t.month)})</option>`).join('')}
         </select>
       </label>
       <label><span class="lbl">Pit</span><input value="${esc(f.pitId)}" disabled style="background:#f5f5f4;"></label>
@@ -961,12 +1002,16 @@ function render(){
 
   const monthTargets = state.massTargets.filter(t=>t.month===state.month);
   const monthLog = state.dailyLog.filter(l=>monthOfDate(l.date)===state.month).slice().sort((a,b)=> b.date.localeCompare(a.date));
+  const hasAnyActiveMass = state.massTargets.some(t=>computeMassStatus(t).status !== 'Completed');
 
   const withStatus = monthTargets.map(t=>({ t, s: computeMassStatus(t) }));
   const completedCount = withStatus.filter(x=>x.s.status==='Completed').length;
   const delayed = withStatus.filter(x=>x.s.status==='Amber' || x.s.status==='Red');
 
   let html = '';
+
+  html += `<button class="btn ghost" onclick="showHeadlineSummary=!showHeadlineSummary; render();" style="margin-bottom:10px;">${showHeadlineSummary ? 'Hide' : '📋 Show'} Headline Summary (cross-month mass tracker)</button>`;
+  if (showHeadlineSummary){ html += renderHeadlineSummary(); }
 
   html += `<p class="section-title">Summary — ${state.month}</p>`;
   html += `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
@@ -1031,7 +1076,7 @@ function render(){
   if (logForm){
     html += renderLogForm();
   } else {
-    html += `<button class="btn teal" onclick="openLogForm()" style="margin-bottom:16px;" ${monthTargets.length===0?'disabled title="Add a Mass Target first"':''}>+ Log today's progress</button>`;
+    html += `<button class="btn teal" onclick="openLogForm()" style="margin-bottom:16px;" ${!hasAnyActiveMass?'disabled title="Add a Mass Target first"':''}>+ Log today's progress</button>`;
   }
 
   html += renderLogViewer();
