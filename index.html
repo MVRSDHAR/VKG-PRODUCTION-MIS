@@ -231,9 +231,14 @@ async function doLogin(){
   const errBox = document.getElementById('loginError');
   errBox.style.display = 'none';
   if (!email || !password){ errBox.textContent = 'Enter email and password.'; errBox.style.display='block'; return; }
-  const { data, error } = await sb.auth.signInWithPassword({ email, password });
-  if (error){ errBox.textContent = 'Sign in failed — check your email and password.'; errBox.style.display='block'; return; }
-  await afterLogin(data.user);
+  try {
+    const { data, error } = await sb.auth.signInWithPassword({ email, password });
+    if (error){ errBox.textContent = 'Sign in failed: ' + error.message; errBox.style.display='block'; return; }
+    await afterLogin(data.user);
+  } catch(e){
+    errBox.textContent = 'Unexpected error: ' + (e && e.message ? e.message : String(e));
+    errBox.style.display = 'block';
+  }
 }
 
 async function doLogout(){
@@ -246,16 +251,23 @@ async function doLogout(){
 }
 
 async function afterLogin(user){
-  currentUser = user;
-  const { data: roleRow } = await sb.from('app_user_roles').select('role').eq('user_id', user.id).maybeSingle();
-  currentRole = roleRow ? roleRow.role : 'viewer';
-  // Map to the app's existing Staff/Admin permission model
-  state.role = (currentRole === 'viewer') ? 'Staff' : 'Admin';
-  document.getElementById('loginScreen').style.display = 'none';
-  document.getElementById('userBadge').style.display = 'flex';
-  document.getElementById('userRoleLabel').textContent = currentRole.toUpperCase() + ' (' + user.email + ')';
-  document.getElementById('monthBar').style.display = 'block';
-  await init();
+  try {
+    currentUser = user;
+    const { data: roleRow, error: roleErr } = await sb.from('app_user_roles').select('role').eq('user_id', user.id).maybeSingle();
+    if (roleErr) throw roleErr;
+    currentRole = roleRow ? roleRow.role : 'viewer';
+    state.role = (currentRole === 'viewer') ? 'Staff' : 'Admin';
+    document.getElementById('loginScreen').style.display = 'none';
+    document.getElementById('userBadge').style.display = 'flex';
+    document.getElementById('userRoleLabel').textContent = currentRole.toUpperCase() + ' (' + user.email + ')';
+    document.getElementById('monthBar').style.display = 'block';
+    await init();
+  } catch(e){
+    const errBox = document.getElementById('loginError');
+    errBox.textContent = 'Login succeeded but loading failed: ' + (e && e.message ? e.message : String(e));
+    errBox.style.display = 'block';
+    console.error(e);
+  }
 }
 
 async function checkExistingSession(){
@@ -355,14 +367,4 @@ function computeMassStatus(m){
   } else {
     status = 'Green';
   }
-  return { status, delayDays, currentActivity, completionDate, boreWiresawDone, slicesDone, totalSlices };
-}
-
-// ================= MASS TARGET FORM =================
-function blankTarget(){
-  return { id:null, month: state.month, massId:'', pitId:'', managerName:'', slicesTargeted:'', volumeCBM:'', customerName:'',
-    targetCompletionDate:'', boreWiresawDate:'', slices:[] };
-}
-function openTargetForm(id){
-  const existing = id ? state.massTargets.find(t=>t.id===id) : null;
-  targetForm = ex
+  return { status, delayDays, currentActivity, completionDate, boreWiresawDone, slicesDone, total
