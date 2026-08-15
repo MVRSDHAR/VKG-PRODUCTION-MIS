@@ -115,19 +115,91 @@ const SUPABASE_URL = 'https://kfalpjblwfhlcqmxbwkc.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_LtkaUUlFOJ1DYCq4J1jXSA_63dmARUe';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-const KEYS = { MASTER:'lite-prodv2-master', MASSTARGETS:'lite-prodv2-masstargets', DAILYLOG:'lite-prodv2-dailylog' };
+const KEYS = { MASTER:'master', MASSTARGETS:'masstargets', DAILYLOG:'dailylog' };
 
+// ---- Data now lives in real Supabase tables (production_masters, production_mass_targets,
+// production_slices, production_daily_log), protected by role-based permissions. ----
 async function loadKey(key, fallback){
   try {
-    const { data, error } = await sb.from('app_storage').select('value').eq('key', key).maybeSingle();
-    if (error) throw error;
-    return data ? data.value : fallback;
+    if (key === KEYS.MASTER){
+      const { data, error } = await sb.from('production_masters').select('type,value');
+      if (error) throw error;
+      return {
+        massIds: data.filter(r=>r.type==='mass_id').map(r=>r.value),
+        managers: data.filter(r=>r.type==='manager').map(r=>r.value)
+      };
+    }
+    if (key === KEYS.MASSTARGETS){
+      const { data: targets, error } = await sb.from('production_mass_targets').select('*').order('month');
+      if (error) throw error;
+      const { data: slices, error: sErr } = await sb.from('production_slices').select('*');
+      if (sErr) throw sErr;
+      return targets.map(t => ({
+        id: t.id, month: t.month, massId: t.mass_id, pitId: t.pit_id || '',
+        managerName: t.manager_name || '', slicesTargeted: t.slices_targeted ?? '',
+        volumeCBM: t.volume_cbm ?? '', customerName: t.customer_name || '',
+        targetCompletionDate: t.target_completion_date || '', boreWiresawDate: t.borewiresaw_date || '',
+        slices: slices.filter(s=>s.mass_target_id===t.id).sort((a,b)=>a.slice_no-b.slice_no)
+          .map(s=>({ sliceNo: s.slice_no, droppingDate: s.dropping_date||'', removalDate: s.removal_date||'' }))
+      }));
+    }
+    if (key === KEYS.DAILYLOG){
+      const { data, error } = await sb.from('production_daily_log').select('*').order('log_date');
+      if (error) throw error;
+      return data.map(l => ({
+        id: l.id, date: l.log_date, manager: l.manager || '', pitId: l.pit_id || '', massId: l.mass_id || '',
+        activity: l.activity || '', sliceNo: l.slice_no ?? '', remarks: l.remarks || '',
+        isCorrection: l.is_correction || false, correctionNote: l.correction_note || '',
+        entryType: 'work', createdBy: l.created_by || '', createdAt: l.created_at || ''
+      }));
+    }
+    return fallback;
   } catch(e){ console.error('load failed', key, e); return fallback; }
 }
 async function saveKey(key, value){
   try {
-    const { error } = await sb.from('app_storage').upsert({ key, value, updated_at: new Date().toISOString() });
-    if (error) throw error;
+    if (key === KEYS.MASTER){
+      const { data: existing } = await sb.from('production_masters').select('type,value');
+      const existingSet = new Set((existing||[]).map(r=>r.type+':'+r.value));
+      const toInsert = [];
+      (value.massIds||[]).forEach(v=>{ if(!existingSet.has('mass_id:'+v)) toInsert.push({type:'mass_id', value:v}); });
+      (value.managers||[]).forEach(v=>{ if(!existingSet.has('manager:'+v)) toInsert.push({type:'manager', value:v}); });
+      if (toInsert.length){
+        const { error } = await sb.from('production_masters').insert(toInsert);
+        if (error) throw error;
+      }
+    } else if (key === KEYS.MASSTARGETS){
+      // Full replace: small dataset, so wipe and re-insert is simpler and safer than diffing.
+      const { error: delErr } = await sb.from('production_mass_targets').delete().not('id','is',null);
+      if (delErr) throw delErr;
+      for (const t of value){
+        const { data: inserted, error } = await sb.from('production_mass_targets').insert({
+          month: t.month, mass_id: t.massId, pit_id: t.pitId||null, manager_name: t.managerName||null,
+          slices_targeted: t.slicesTargeted || null, volume_cbm: t.volumeCBM || null,
+          customer_name: t.customerName||null, target_completion_date: t.targetCompletionDate||null,
+          borewiresaw_date: t.boreWiresawDate||null
+        }).select().single();
+        if (error) throw error;
+        t.id = inserted.id;
+        if (t.slices && t.slices.length){
+          const sliceRows = t.slices.map(s=>({ mass_target_id: inserted.id, slice_no: s.sliceNo, dropping_date: s.droppingDate||null, removal_date: s.removalDate||null }));
+          const { error: sErr } = await sb.from('production_slices').insert(sliceRows);
+          if (sErr) throw sErr;
+        }
+      }
+    } else if (key === KEYS.DAILYLOG){
+      const { error: delErr } = await sb.from('production_daily_log').delete().not('id','is',null);
+      if (delErr) throw delErr;
+      if (value.length){
+        const rows = value.map(l=>({
+          log_date: l.date, manager: l.manager||null, mass_id: l.massId||null, pit_id: l.pitId||null,
+          activity: l.activity||null, slice_no: l.sliceNo||null, remarks: l.remarks||null,
+          is_correction: l.isCorrection||false, correction_note: l.correctionNote||null, created_by: l.createdBy||null
+        }));
+        const { error } = await sb.from('production_daily_log').insert(rows);
+        if (error) throw error;
+      }
+    }
     hideSaveFailedWarning();
     return true;
   } catch(e){
@@ -293,559 +365,4 @@ function blankTarget(){
 }
 function openTargetForm(id){
   const existing = id ? state.massTargets.find(t=>t.id===id) : null;
-  targetForm = existing ? JSON.parse(JSON.stringify(existing)) : blankTarget();
-  targetFormManagerMode = (targetForm.managerName && !state.master.managers.includes(targetForm.managerName)) ? 'new' : 'select';
-  render();
-  window.scrollTo({top:0, behavior:'smooth'});
-}
-function closeTargetForm(){ targetForm = null; render(); }
-function syncSliceCount(){
-  const n = Math.max(0, Number(targetForm.slicesTargeted)||0);
-  targetForm.slices = makeSlices(n, targetForm.slices);
-  render();
-}
-function setSliceField(sliceNo, field, value){
-  const s = targetForm.slices.find(x=>x.sliceNo===sliceNo);
-  if (s) s[field] = value;
-}
-async function submitTarget(keepOpen){
-  const f = targetForm;
-  if (!f.massId || !f.pitId){ alert('Please fill Mass ID and Pit.'); return; }
-  const rec = { ...f, slicesTargeted: Number(f.slicesTargeted)||0 };
-  if (f.id){
-    state.massTargets = state.massTargets.map(t => t.id===f.id ? rec : t);
-  } else {
-    rec.id = uid();
-    if (state.massTargets.some(t=>t.month===rec.month && t.massId===rec.massId)){ alert('This Mass ID already has a target this month — edit the existing one instead.'); return; }
-    state.massTargets = [...state.massTargets, rec];
-  }
-  await saveKey(KEYS.MASSTARGETS, state.massTargets);
-  await addMassId(f.massId);
-  if (f.managerName) await addManager(f.managerName);
-  if (keepOpen){
-    flash('Saved — keep filling in the rest whenever you\'re ready');
-    targetForm = { ...rec };
-    render();
-  } else {
-    flash(f.id ? 'Mass target updated' : 'Mass target added');
-    targetForm = null;
-    render();
-  }
-}
-let pendingDelete = null; // { type: 'target'|'log', id }
-function requestDeleteTarget(id){ pendingDelete = { type:'target', id }; render(); }
-function requestDeleteLog(id){ pendingDelete = { type:'log', id }; render(); }
-function cancelDelete(){ pendingDelete = null; render(); }
-async function confirmDelete(){
-  if (!pendingDelete) return;
-  if (pendingDelete.type === 'target'){
-    state.massTargets = state.massTargets.filter(t=>t.id!==pendingDelete.id);
-    await saveKey(KEYS.MASSTARGETS, state.massTargets);
-    flash('Mass target deleted');
-  } else if (pendingDelete.type === 'log'){
-    state.dailyLog = state.dailyLog.filter(l=>l.id!==pendingDelete.id);
-    await saveKey(KEYS.DAILYLOG, state.dailyLog);
-    flash('Log entry deleted');
-  }
-  pendingDelete = null;
-  render();
-}
-function deleteConfirmWidget(){
-  return `<span style="display:inline-flex;align-items:center;gap:6px;background:#fee2e2;border:1px solid #fecaca;border-radius:8px;padding:4px 8px;">
-    <span style="font-size:11px;color:#b91c1c;">Delete?</span>
-    <button onclick="confirmDelete()" style="font-size:11px;font-weight:700;color:#b91c1c;background:none;border:none;text-decoration:underline;cursor:pointer;">Confirm</button>
-    <button onclick="cancelDelete()" style="font-size:11px;color:#78716c;background:none;border:none;cursor:pointer;">Cancel</button>
-  </span>`;
-}
-
-function renderTargetForm(){
-  const f = targetForm;
-  const sliceRows = (f.slices||[]).map(s => `
-    <tr>
-      <td style="font-weight:600;">S${s.sliceNo}</td>
-      <td><input type="date" value="${esc(s.droppingDate)}" onchange="setSliceField(${s.sliceNo},'droppingDate',this.value)"></td>
-      <td><input type="date" value="${esc(s.removalDate)}" onchange="setSliceField(${s.sliceNo},'removalDate',this.value)"></td>
-    </tr>`).join('');
-
-  return `
-  <div class="card">
-    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
-      <p class="section-title" style="margin:0;">${f.id ? 'Edit Mass Target' : 'New Mass Target'}</p>
-      <div>
-        <button class="btn teal" onclick="submitTarget(true)">💾 Save changes</button>
-        <button class="btn ghost" onclick="closeTargetForm()">Cancel</button>
-      </div>
-    </div>
-    <p class="hint" style="margin-top:0;">You can save at any point while filling this in — nothing here needs to be complete first.</p>
-    <div class="subcard">
-      <div class="subtitle">Basic info</div>
-      <div class="grid3">
-        <label><span class="lbl">Mass ID</span><input list="massIdList" value="${esc(f.massId)}" onchange="targetForm.massId=this.value" placeholder="e.g. E 9" ${f.id?'disabled':''}></label>
-        <label><span class="lbl">Pit</span>
-          <select onchange="targetForm.pitId=this.value">
-            <option value="">Select pit</option>
-            ${PITS.map(p=>`<option value="${p}" ${f.pitId===p?'selected':''}>${p}</option>`).join('')}
-          </select>
-        </label>
-        <label><span class="lbl">Manager assigned</span>
-          ${targetFormManagerMode==='new' ? `
-            <input value="${esc(f.managerName)}" onchange="targetForm.managerName=this.value" placeholder="Type new manager name" autofocus>
-            ${state.master.managers.length>0 ? `<button type="button" class="btn ghost" style="margin-top:6px;padding:4px 10px;font-size:12px;" onclick="targetFormManagerMode='select'; render();">← Choose from list instead</button>` : ''}
-          ` : `
-            <select onchange="if(this.value==='__new__'){targetFormManagerMode='new'; targetForm.managerName=''; render();} else {targetForm.managerName=this.value;}">
-              <option value="">Select manager...</option>
-              ${state.master.managers.map(m=>`<option value="${esc(m)}" ${f.managerName===m?'selected':''}>${esc(m)}</option>`).join('')}
-              <option value="__new__">+ Add new manager</option>
-            </select>
-          `}
-        </label>
-        <label><span class="lbl">Number of slices targeted</span><input type="number" min="0" step="1" value="${esc(f.slicesTargeted)}" onchange="targetForm.slicesTargeted=this.value; syncSliceCount();"></label>
-        <label><span class="lbl">Volume (CBM)</span><input value="${esc(f.volumeCBM)}" onchange="targetForm.volumeCBM=this.value" placeholder="Free text"></label>
-        <label><span class="lbl">Customer name</span><input value="${esc(f.customerName)}" onchange="targetForm.customerName=this.value" placeholder="Free text"></label>
-      </div>
-      <label><span class="lbl">Target completion date</span><input type="date" value="${esc(f.targetCompletionDate)}" onchange="targetForm.targetCompletionDate=this.value" style="max-width:220px;"></label>
-      <p class="hint" style="margin-top:-6px;">This one date is what delay is measured against — the mass is "on time" if the last slice is removed on or before this date.</p>
-    </div>
-
-    <div class="subcard">
-      <div class="subtitle">Bore &amp; Wiresaw</div>
-      <label><span class="lbl">Completed on</span><input type="date" value="${esc(f.boreWiresawDate)}" onchange="targetForm.boreWiresawDate=this.value" style="max-width:220px;"></label>
-    </div>
-
-    ${(f.slices && f.slices.length>0) ? `
-    <div class="subcard">
-      <div class="subtitle">Slice-wise progress</div>
-      <div class="table-wrap">
-        <table class="slice-table">
-          <thead><tr><th>Slice</th><th>Dropping Date</th><th>Removal Date</th></tr></thead>
-          <tbody>${sliceRows}</tbody>
-        </table>
-      </div>
-      <p class="hint">Tip: it's usually easier to leave these blank here and fill them day-to-day using the Activity Log below instead — it fills these in automatically. The mass is complete once every slice has a Removal Date.</p>
-    </div>` : `<p class="hint">Enter Number of slices targeted above to generate the slice-wise progress table.</p>`}
-
-    <button class="btn teal" onclick="submitTarget()">${f.id ? 'Save changes' : 'Add mass target'}</button>
-    <button class="btn ghost" onclick="closeTargetForm()">Cancel</button>
-  </div>`;
-}
-
-// ================= ACTIVITY LOG =================
-function blankLog(){ return { date: today(), manager:'', pitId:'', massId:'', activity:'Bore & Wiresaw', sliceNo:'', remarks:'', isCorrection:false, correctionNote:'' }; }
-function openLogForm(){
-  logForm = blankLog();
-  logFormManagerMode = state.master.managers.length>0 ? 'select' : 'new';
-  render();
-  window.scrollTo({top:0,behavior:'smooth'});
-}
-function startLogForDate(dateStr){
-  logForm = blankLog();
-  logForm.date = dateStr;
-  logFormManagerMode = state.master.managers.length>0 ? 'select' : 'new';
-  render();
-  window.scrollTo({top:0,behavior:'smooth'});
-}
-function closeLogForm(){ logForm = null; render(); }
-function setLogMass(massId){
-  logForm.massId = massId;
-  const t = state.massTargets.find(x=>x.massId===massId);
-  if (t) logForm.pitId = t.pitId;
-  render();
-}
-function setLogManager(name){ logForm.manager = name; render(); }
-function setLogActivity(a){ logForm.activity = a; logForm.sliceNo = ''; render(); }
-
-async function submitLog(){
-  const f = logForm;
-  if (!f.manager){ alert('Please select which manager is logging this.'); return; }
-  if (!f.date || !f.massId || !f.activity){ alert('Please fill date, mass and activity.'); return; }
-  if (PER_SLICE_ACTIVITIES.includes(f.activity) && !f.sliceNo){ alert('Please select the slice number for this activity.'); return; }
-  if (f.isCorrection && !f.correctionNote){ alert('Please note what this is correcting.'); return; }
-
-  const rec = { ...f, entryType:'work', id: uid(), createdBy: state.role, createdAt: new Date().toISOString() };
-  state.dailyLog = [...state.dailyLog, rec];
-  await saveKey(KEYS.DAILYLOG, state.dailyLog);
-  await addManager(f.manager);
-
-  const idx = state.massTargets.findIndex(t=>t.massId===f.massId);
-  if (idx >= 0){
-    const t = state.massTargets[idx];
-    if (f.activity === 'Bore & Wiresaw') t.boreWiresawDate = f.date;
-    else {
-      const s = (t.slices||[]).find(x=>x.sliceNo===Number(f.sliceNo));
-      if (s){
-        if (f.activity === 'Slice Dropping') s.droppingDate = f.date;
-        else if (f.activity === 'Slice Removal') s.removalDate = f.date;
-      }
-    }
-    state.massTargets[idx] = t;
-    await saveKey(KEYS.MASSTARGETS, state.massTargets);
-  }
-  flash('Progress logged');
-  logForm = null;
-  render();
-}
-function renderLogForm(){
-  const f = logForm;
-  const activeMasses = state.massTargets.filter(t=>computeMassStatus(t).status !== 'Completed');
-  const selectedMass = activeMasses.find(t=>t.massId===f.massId);
-  const sliceOptions = selectedMass ? Array.from({length:selectedMass.slicesTargeted||0},(_,i)=>i+1) : [];
-
-  const managerField = `
-    <label><span class="lbl">Manager</span>
-      ${logFormManagerMode==='new' ? `
-        <input value="${esc(f.manager)}" onchange="setLogManager(this.value)" placeholder="Type manager name" autofocus>
-        ${state.master.managers.length>0 ? `<button type="button" class="btn ghost" style="margin-top:6px;padding:4px 10px;font-size:12px;" onclick="logFormManagerMode='select'; render();">← Choose from list instead</button>` : ''}
-      ` : `
-        <select onchange="if(this.value==='__new__'){logFormManagerMode='new'; setLogManager('');} else { setLogManager(this.value); }">
-          <option value="">Select manager...</option>
-          ${state.master.managers.map(m=>`<option value="${esc(m)}" ${f.manager===m?'selected':''}>${esc(m)}</option>`).join('')}
-          <option value="__new__">+ Add new manager</option>
-        </select>
-      `}
-    </label>`;
-
-  return `
-  <div class="card">
-    <p class="section-title" style="margin-top:0;">Log Progress</p>
-    <div class="grid3">
-      <label><span class="lbl">Date</span><input type="date" value="${esc(f.date)}" onchange="logForm.date=this.value"></label>
-      ${managerField}
-      <label><span class="lbl">Mass ID</span>
-        <select onchange="setLogMass(this.value)">
-          <option value="">Select mass...</option>
-          ${activeMasses.map(t=>`<option value="${esc(t.massId)}" ${f.massId===t.massId?'selected':''}>${esc(t.massId)} (Pit ${esc(t.pitId)})</option>`).join('')}
-        </select>
-      </label>
-      <label><span class="lbl">Pit</span><input value="${esc(f.pitId)}" disabled style="background:#f5f5f4;"></label>
-      <label><span class="lbl">Activity</span>
-        <select onchange="setLogActivity(this.value)">
-          ${ACTIVITIES.map(a=>`<option value="${a}" ${f.activity===a?'selected':''}>${a}</option>`).join('')}
-        </select>
-      </label>
-      ${PER_SLICE_ACTIVITIES.includes(f.activity) ? `
-      <label><span class="lbl">Slice No.</span>
-        <select onchange="logForm.sliceNo=this.value">
-          <option value="">Select slice...</option>
-          ${sliceOptions.map(n=>`<option value="${n}" ${String(f.sliceNo)===String(n)?'selected':''}>S${n}</option>`).join('')}
-        </select>
-      </label>` : ''}
-    </div>
-    <label><span class="lbl">Remarks (optional)</span><input value="${esc(f.remarks)}" onchange="logForm.remarks=this.value" placeholder="What happened"></label>
-    <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-      <input type="checkbox" style="width:auto;" ${f.isCorrection?'checked':''} onchange="logForm.isCorrection=this.checked; render();">
-      <span style="font-size:13px;font-weight:600;color:#57534e;">Correcting a previous entry?</span>
-    </label>
-    ${f.isCorrection ? `<label><span class="lbl">What is this correcting?</span><input value="${esc(f.correctionNote)}" onchange="logForm.correctionNote=this.value" placeholder="e.g. corrects Slice 2 — wrong date entered"></label>` : ''}
-    <button class="btn teal" onclick="submitLog()">Save log entry</button>
-    <button class="btn ghost" onclick="closeLogForm()">Cancel</button>
-    <p class="hint">Marking an activity here automatically fills in the matching date on the Mass Target — for the last slice's Removal, that date also becomes the mass's completion date.</p>
-  </div>`;
-}
-
-// ================= WORK LOG VIEWER =================
-let logViewFrom = null;
-let logViewTo = null;
-function getDefaultViewDate(){
-  const monthLog = state.dailyLog.filter(l=>monthOfDate(l.date)===state.month);
-  if (monthLog.length===0) return null;
-  return monthLog.map(l=>l.date).sort().slice(-1)[0];
-}
-function setLogViewFrom(v){ logViewFrom = v; render(); }
-function setLogViewTo(v){ logViewTo = v; render(); }
-function resetLogView(){ logViewFrom = null; logViewTo = null; render(); }
-
-function renderLogViewer(){
-  const defaultDate = getDefaultViewDate();
-  const isDefault = !logViewFrom;
-  const from = logViewFrom || defaultDate;
-  const to = logViewTo || from;
-  const results = from ? state.dailyLog.filter(l => monthOfDate(l.date)===state.month && l.date>=from && l.date<=to)
-                          .sort((a,b)=>b.date.localeCompare(a.date)) : [];
-
-  const rowsHtml = results.length===0 ? `<tr><td colspan="5" class="empty">No entries in this period.</td></tr>` :
-    results.map(l=>`<tr>
-        <td>${esc(l.date)}</td><td>${esc(l.manager||'—')}</td>
-        <td style="font-family:ui-monospace,monospace;">${esc(l.massId)}</td>
-        <td>${esc(l.activity)}${l.sliceNo?' (S'+esc(l.sliceNo)+')':''}</td>
-        <td style="color:#78716c;font-size:12px;">${esc(l.remarks||'—')}</td>
-      </tr>`).join('');
-
-  return `
-  <div class="card">
-    <p class="section-title" style="margin-top:0;">Activity Log by Date</p>
-    <div class="grid3">
-      <label><span class="lbl">From</span><input type="date" value="${esc(from||'')}" onchange="setLogViewFrom(this.value)"></label>
-      <label><span class="lbl">To (optional)</span><input type="date" value="${esc(logViewTo||'')}" onchange="setLogViewTo(this.value)"></label>
-      <div style="display:flex;align-items:flex-end;"><button class="btn ghost" style="margin-bottom:12px;" onclick="resetLogView()">Reset to latest</button></div>
-    </div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">
-      ${from ? `<button class="btn teal" onclick="startLogForDate('${esc(from)}')">+ Log for ${esc(from)}</button>` : ''}
-      <button class="btn teal" onclick="downloadSummaryImage()">📷 Image</button>
-      <button class="btn teal" onclick="downloadSummaryPDF()">📄 PDF</button>
-      <button class="btn teal" onclick="downloadExcel()">⬇ Excel</button>
-    </div>
-    <p class="hint" style="margin-top:-4px;">${isDefault ? (defaultDate ? `Showing the most recently logged date (${esc(defaultDate)}) by default.` : 'No entries logged yet this month.') : `Showing ${esc(from)}${to!==from?' to '+esc(to):''}.`}</p>
-    <div class="table-wrap">
-      <table><thead><tr><th>Date</th><th>Manager</th><th>Mass ID</th><th>Activity</th><th>Remarks</th></tr></thead>
-      <tbody>${rowsHtml}</tbody></table>
-    </div>
-  </div>`;
-}
-
-// ================= HEADLINE SUMMARY (cross-month) =================
-function renderHeadlineSummary(){
-  const rows = state.massTargets.slice().sort((a,b) => (a.boreWiresawDate||'9999').localeCompare(b.boreWiresawDate||'9999'));
-  const rowsHtml = rows.length===0 ? `<tr><td colspan="5" class="empty">No Mass Targets recorded yet.</td></tr>` :
-    rows.map(t=>{
-      const s = computeMassStatus(t);
-      return `<tr>
-        <td style="font-family:ui-monospace,monospace;">${esc(t.massId)}</td>
-        <td>${esc(t.boreWiresawDate||'—')}</td>
-        <td>${s.completionDate ? esc(s.completionDate) : `<span class="badge amber">In progress</span>`}</td>
-        <td class="num">${esc(t.volumeCBM||'—')}</td>
-        <td>${esc(t.customerName||'—')}</td>
-      </tr>`;
-    }).join('');
-
-  return `
-  <div class="card">
-    <p class="section-title" style="margin-top:0;">Headline Summary — All Masses, Every Month</p>
-    <p class="hint" style="margin-top:-4px;margin-bottom:10px;">Tracks masses across the months they actually span — not limited to the month picker above.</p>
-    <div class="table-wrap">
-      <table><thead><tr><th>Mass ID</th><th>Bore &amp; Wiresaw Date</th><th>Completion Date</th><th style="text-align:right;">Volume (CBM)</th><th>Customer Name</th></tr></thead>
-      <tbody>${rowsHtml}</tbody></table>
-    </div>
-  </div>`;
-}
-
-// ================= EXPORTS =================
-function renderTargetVsAchievement(t){
-  const s = computeMassStatus(t);
-  const rows = [{ label:'Bore & Wiresaw', date:t.boreWiresawDate }];
-  (t.slices||[]).forEach(sl=>{
-    rows.push({ label:`S${sl.sliceNo} — Dropping`, date: sl.droppingDate });
-    rows.push({ label:`S${sl.sliceNo} — Removal`, date: sl.removalDate });
-  });
-  const rowsHtml = rows.map(r=>`<tr><td>${esc(r.label)}</td><td>${esc(r.date||'—')}</td><td>${r.date ? '<span class="badge emerald">Done</span>' : '<span class="badge stone">Pending</span>'}</td></tr>`).join('');
-  return `
-    <div style="padding:8px;">
-      <p style="font-size:12px;color:#78716c;margin:0 0 8px;">
-        <strong>${esc(t.massId)}</strong> — Pit ${esc(t.pitId)}${t.managerName?` — Manager: ${esc(t.managerName)}`:''}${t.volumeCBM?` — Volume: ${esc(t.volumeCBM)} CBM`:''}${t.customerName?` — Customer: ${esc(t.customerName)}`:''}
-        — Target completion: ${esc(t.targetCompletionDate||'—')}
-      </p>
-      <table class="slice-table"><thead><tr><th>Activity</th><th>Date</th><th>Status</th></tr></thead>
-      <tbody>${rowsHtml}</tbody></table>
-    </div>`;
-}
-
-function renderFullCaptureBlock(withStatus){
-  const todayStr = today();
-  let inner = `<h2 style="margin:0 0 4px;font-size:18px;">VKG Mass Progress Summary</h2>`;
-  inner += `<p style="margin:0 0 16px;font-size:12px;color:#78716c;">${esc(state.month)} — generated ${esc(todayStr)}</p>`;
-
-  inner += `<table class="slice-table" style="width:100%;margin-bottom:20px;"><thead><tr>
-    <th>Mass ID</th><th>Manager</th><th>Target Completion</th><th>Status</th><th style="text-align:right;">Delay</th></tr></thead><tbody>`;
-  if (withStatus.length===0){ inner += `<tr><td colspan="5" style="text-align:center;color:#a8a29e;padding:12px;">No Mass Targets for this month.</td></tr>`; }
-  else {
-    withStatus.forEach(({t,s})=>{
-      inner += `<tr>
-        <td style="font-weight:600;">${esc(t.massId)}</td>
-        <td>${esc(t.managerName||'—')}</td>
-        <td>${esc(t.targetCompletionDate||'—')}</td>
-        <td>${s.status}</td>
-        <td style="text-align:right;">${s.delayDays>0 ? s.delayDays+' days' : '—'}</td>
-      </tr>`;
-    });
-  }
-  inner += `</tbody></table>`;
-
-  inner += `<h3 style="font-size:13px;text-transform:uppercase;color:#57534e;margin:0 0 10px;">Target vs Achievement — All Masses</h3>`;
-  if (withStatus.length===0){ inner += `<p style="font-size:13px;color:#a8a29e;">No masses to show.</p>`; }
-  else { withStatus.forEach(({t})=>{ inner += renderTargetVsAchievement(t); }); }
-
-  return `<div id="summaryCaptureFull" style="position:absolute;left:-9999px;top:0;width:820px;background:#fff;padding:24px;font-family:inherit;color:#1c1917;">${inner}</div>`;
-}
-
-function showDownloadReady(blobUrl, filename, label, preOpenedWindow){
-  const existing = document.getElementById('downloadReadyBox');
-  if (existing) existing.remove();
-  if (preOpenedWindow && !preOpenedWindow.closed){ preOpenedWindow.location.href = blobUrl; }
-  const box = document.createElement('div');
-  box.id = 'downloadReadyBox';
-  box.style.cssText = 'position:fixed;bottom:16px;left:16px;right:16px;max-width:440px;margin:0 auto;background:#1c1917;color:white;padding:16px;border-radius:12px;z-index:200;box-shadow:0 4px 24px rgba(0,0,0,0.35);';
-  box.innerHTML = `
-    <div style="font-size:13px;margin-bottom:10px;">${label} is ready.</div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;">
-      <a href="${blobUrl}" download="${filename}" style="background:#0f766e;color:white;padding:9px 14px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;">⬇ Download</a>
-      <a href="${blobUrl}" target="_blank" rel="noopener" style="background:#44403c;color:white;padding:9px 14px;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600;">↗ Open in new tab</a>
-      <button onclick="document.getElementById('downloadReadyBox').remove()" style="background:none;border:1px solid #78716c;color:#d6d3d1;padding:9px 14px;border-radius:8px;font-size:13px;cursor:pointer;">Close</button>
-    </div>
-    <p style="font-size:11px;color:#a8a29e;margin:8px 0 0;">On mobile: tap "Download", then check your browser's own Downloads list (not Gallery) — that's usually where mobile browsers actually put saved files.</p>
-  `;
-  document.body.appendChild(box);
-}
-
-async function downloadSummaryImage(){
-  if (typeof html2canvas === 'undefined'){ alert('Image export library did not load — check your internet connection and try again.'); return; }
-  const el = document.getElementById('summaryCaptureFull');
-  if (!el){ alert('Nothing to capture yet.'); return; }
-  const preOpened = window.open('', '_blank'); // opened synchronously, before any await, so mobile doesn't block it
-  try {
-    const canvas = await html2canvas(el, { backgroundColor: '#ffffff', scale: 2 });
-    canvas.toBlob((blob) => {
-      if (!blob){ alert('Could not generate the image — please try again.'); return; }
-      const blobUrl = URL.createObjectURL(blob);
-      showDownloadReady(blobUrl, `VKG_Mass_Progress_${state.month}.png`, 'Your summary image', preOpened);
-      try { const link=document.createElement('a'); link.download=`VKG_Mass_Progress_${state.month}.png`; link.href=blobUrl; document.body.appendChild(link); link.click(); document.body.removeChild(link); } catch(e){}
-    }, 'image/png');
-  } catch(e){ console.error(e); if (preOpened) preOpened.close(); alert('Could not generate the image — please try again.'); }
-}
-async function downloadSummaryPDF(){
-  if (typeof html2canvas === 'undefined' || typeof window.jspdf === 'undefined'){ alert('PDF export library did not load — check your internet connection and try again.'); return; }
-  const el = document.getElementById('summaryCaptureFull');
-  if (!el){ alert('Nothing to capture yet.'); return; }
-  const preOpened = window.open('', '_blank'); // opened synchronously, before any await, so mobile doesn't block it
-  try {
-    const canvas = await html2canvas(el, { backgroundColor: '#ffffff', scale: 2 });
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF('p', 'pt', 'a4');
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const pageHeight = pdf.internal.pageSize.getHeight();
-    const imgWidth = pageWidth;
-    const imgHeight = (canvas.height * imgWidth) / canvas.width;
-    const imgData = canvas.toDataURL('image/png');
-    let heightLeft = imgHeight, position = 0;
-    pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-    heightLeft -= pageHeight;
-    while (heightLeft > 0){
-      position = heightLeft - imgHeight;
-      pdf.addPage();
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-    }
-    const blobUrl = URL.createObjectURL(pdf.output('blob'));
-    showDownloadReady(blobUrl, `VKG_Mass_Progress_${state.month}.pdf`, 'Your summary PDF', preOpened);
-    try { pdf.save(`VKG_Mass_Progress_${state.month}.pdf`); } catch(e){}
-  } catch(e){ console.error(e); if (preOpened) preOpened.close(); alert('Could not generate the PDF — please try again.'); }
-}
-function downloadExcel(){
-  if (typeof XLSX === 'undefined'){ alert('Excel export library did not load — check your internet connection and try again.'); return; }
-  const preOpened = window.open('', '_blank'); // opened synchronously so mobile doesn't block it
-  const monthTargets = state.massTargets.filter(t=>t.month===state.month);
-  const summaryRows = monthTargets.map(t=>{
-    const s = computeMassStatus(t);
-    return {
-      'Mass ID': t.massId, 'Pit': t.pitId, 'Manager': t.managerName||'', 'Customer': t.customerName||'', 'Volume (CBM)': t.volumeCBM||'',
-      'Target Completion': t.targetCompletionDate||'', 'Bore & Wiresaw Date': t.boreWiresawDate||'',
-      'Actual Completion': s.completionDate||'', 'Status': s.status, 'Delay (days)': s.delayDays
-    };
-  });
-  const monthLog = state.dailyLog.filter(l=>monthOfDate(l.date)===state.month);
-  const logRows = monthLog.sort((a,b)=>a.date.localeCompare(b.date)).map(l=>({
-    'Date': l.date, 'Manager': l.manager||'', 'Pit': l.pitId||'', 'Mass ID': l.massId||'',
-    'Activity': l.activity||'', 'Slice No': l.sliceNo||'', 'Remarks': l.remarks||'',
-    'Correction?': l.isCorrection?'Yes':'No', 'Correction Note': l.correctionNote||''
-  }));
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(summaryRows), 'Monthly Summary');
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(logRows), 'Activity Log');
-  const wbArray = XLSX.write(wb, { type:'array', bookType:'xlsx' });
-  const blob = new Blob([wbArray], { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const blobUrl = URL.createObjectURL(blob);
-  showDownloadReady(blobUrl, `VKG_Mass_Progress_${state.month}.xlsx`, 'Your Excel file', preOpened);
-  try { XLSX.writeFile(wb, `VKG_Mass_Progress_${state.month}.xlsx`); } catch(e){}
-}
-
-// ================= MAIN RENDER =================
-function render(){
-  if (state.loading){ document.getElementById('app').innerHTML = '<div class="empty">Loading…</div>'; return; }
-
-  const monthTargets = state.massTargets.filter(t=>t.month===state.month);
-  const withStatus = monthTargets.map(t=>({ t, s: computeMassStatus(t) }));
-  const completedCount = withStatus.filter(x=>x.s.status==='Completed').length;
-
-  let html = '';
-
-  html += `<button class="btn ghost" onclick="showHeadlineSummary=!showHeadlineSummary; render();" style="margin-bottom:10px;">${showHeadlineSummary ? 'Hide' : '📋 Show'} Headline Summary (cross-month)</button>`;
-  if (showHeadlineSummary){ html += renderHeadlineSummary(); }
-
-  html += `<p class="section-title">Summary — ${state.month}</p>`;
-  html += `<div class="stat-row">
-    <div class="stat stone"><div class="lbl">Masses Targeted</div><div class="val">${monthTargets.length}</div></div>
-    <div class="stat green"><div class="lbl">Completed</div><div class="val">${completedCount} / ${monthTargets.length}</div></div>
-  </div>`;
-
-  html += `<div class="table-wrap"><table><thead><tr>
-    <th>Mass ID</th><th>Pit</th><th>Manager</th><th>Target Completion</th><th>Status</th><th style="text-align:right;">Delay</th><th></th><th></th>
-    </tr></thead><tbody>`;
-  if (withStatus.length === 0){
-    html += `<tr><td colspan="8" class="empty">No Mass Targets set for this month yet.</td></tr>`;
-  } else {
-    withStatus.forEach(({t,s})=>{
-      html += `<tr>
-        <td style="font-family:ui-monospace,monospace;">${esc(t.massId)}</td>
-        <td><span class="badge stone">${esc(t.pitId)}</span></td>
-        <td>${esc(t.managerName||'—')}</td>
-        <td>${esc(t.targetCompletionDate||'—')}</td>
-        <td><span class="dot ${s.status.toLowerCase()}"></span><span class="badge ${s.status.toLowerCase()==='completed'?'emerald':s.status.toLowerCase()}">${s.status}</span></td>
-        <td class="num" style="color:${s.delayDays>2?'var(--red)':(s.delayDays>0?'var(--amber)':'var(--emerald)')};">${s.delayDays>0 ? s.delayDays+' day'+(s.delayDays===1?'':'s') : '—'}</td>
-        <td><button class="btn ghost" style="padding:5px 10px;font-size:12px;" onclick="expandedMassId = (expandedMassId==='${t.id}') ? null : '${t.id}'; render();">${expandedMassId===t.id ? 'Hide' : 'View'} Detail</button></td>
-        <td><div class="actions">
-          <button class="icon-btn" onclick="openTargetForm('${t.id}')" title="Edit">✏️</button>
-          ${state.role==='Admin' ? (pendingDelete && pendingDelete.type==='target' && pendingDelete.id===t.id ? deleteConfirmWidget() : `<button class="icon-btn danger" onclick="requestDeleteTarget('${t.id}')" title="Delete">🗑️</button>`) : ''}
-        </div></td>
-      </tr>`;
-      if (expandedMassId === t.id){
-        html += `<tr><td colspan="8" style="background:#fafaf9;">${renderTargetVsAchievement(t)}</td></tr>`;
-      }
-    });
-  }
-  html += `</tbody></table></div>`;
-
-  html += `<p class="section-title">Mass Targets</p>`;
-  if (targetForm){
-    html += renderTargetForm();
-  } else {
-    html += `<button class="btn teal" onclick="openTargetForm(null)" style="margin-bottom:16px;">+ Add Mass Target</button>`;
-  }
-
-  html += `<p class="section-title">Activity Log</p>`;
-  if (logForm){
-    html += renderLogForm();
-  } else {
-    html += `<button class="btn teal" onclick="openLogForm()" style="margin-bottom:16px;" ${state.massTargets.filter(t=>computeMassStatus(t).status!=='Completed').length===0?'disabled title="Add a Mass Target first"':''}>+ Log progress</button>`;
-  }
-  html += renderLogViewer();
-
-  html += `<p class="section-title">This Month's Log</p>`;
-  const monthLog = state.dailyLog.filter(l=>monthOfDate(l.date)===state.month).slice().sort((a,b)=>b.date.localeCompare(a.date));
-  html += `<div class="table-wrap"><table><thead><tr>
-    <th>Date</th><th>Manager</th><th>Pit</th><th>Mass ID</th><th>Activity</th><th>Remarks</th><th></th>
-    </tr></thead><tbody>`;
-  if (monthLog.length === 0){
-    html += `<tr><td colspan="7" class="empty">No progress logged this month yet.</td></tr>`;
-  } else {
-    monthLog.forEach(l=>{
-      html += `<tr>
-        <td>${esc(l.date)}</td>
-        <td>${esc(l.manager||'—')}</td>
-        <td><span class="badge stone">${esc(l.pitId)}</span></td>
-        <td style="font-family:ui-monospace,monospace;">${esc(l.massId)}</td>
-        <td>${esc(l.activity)}${l.sliceNo?' (S'+esc(l.sliceNo)+')':''}</td>
-        <td style="color:#78716c;font-size:12px;">
-          ${l.isCorrection ? `<span class="badge red">Correction</span> ${esc(l.correctionNote||'')}<br>` : ''}${esc(l.remarks||(l.isCorrection?'':'—'))}
-        </td>
-        <td>${state.role==='Admin' ? (pendingDelete && pendingDelete.type==='log' && pendingDelete.id===l.id ? deleteConfirmWidget() : `<button class="icon-btn danger" onclick="requestDeleteLog('${l.id}')" title="Delete">🗑️</button>`) : ''}</td>
-      </tr>`;
-    });
-  }
-  html += `</tbody></table></div>`;
-
-  html += renderFullCaptureBlock(withStatus);
-
-  document.getElementById('app').innerHTML = html;
-  refreshDatalists();
-}
-</script>
-</body>
-</html>
+  targetForm = ex
