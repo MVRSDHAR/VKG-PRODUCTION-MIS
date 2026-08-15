@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VKG Prod Lite Ver2.0</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root {
+    --teal: #0f766e; --teal-bg: #ccfbf1;
+    --amber: #b45309; --amber-bg: #fef3c7;
+    --emerald: #047857; --emerald-bg: #d1fae5;
+    --green: #16a34a; --green-bg: #dcfce7;
+    --stone: #44403c; --stone-bg: #f5f5f4; --stone-border:#e7e5e4;
+    --red: #dc2626; --red-bg:#fee2e2;
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background:var(--stone-bg); color:#1c1917; }
+  header { background:#1c1917; color:#fafaf9; padding:16px; }
+  header .row { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px; max-width:1000px; margin:0 auto; }
+  header h1 { font-size:18px; margin:0; }
+  header p { margin:2px 0 0; font-size:11px; letter-spacing:1px; text-transform:uppercase; color:#5eead4; }
+  .role-select { display:flex; align-items:center; gap:6px; font-size:12px; color:#d6d3d1; }
+  select, input, textarea { font-family:inherit; font-size:14px; padding:8px; border-radius:8px; border:1px solid #d6d3d1; width:100%; background:white; }
+  .bar { background:white; border-bottom:1px solid var(--stone-border); position:sticky; top:0; z-index:5; }
+  .bar .row { max-width:1000px; margin:0 auto; padding:10px 16px; display:flex; align-items:center; justify-content:flex-end; }
+  main { max-width:1000px; margin:0 auto; padding:16px; padding-bottom:60px; }
+  .card { background:white; border:1px solid var(--stone-border); border-radius:12px; padding:16px; margin-bottom:16px; box-shadow:0 1px 2px rgba(0,0,0,0.04); }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:0 16px; }
+  .grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:0 16px; }
+  @media (max-width:640px){ .grid,.grid3{ grid-template-columns:1fr; } }
+  label { display:block; margin-bottom:12px; }
+  label span.lbl { display:block; font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#78716c; margin-bottom:4px; }
+  .pill-row { display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap; }
+  .pill { padding:7px 14px; border-radius:999px; border:1px solid #d6d3d1; background:white; font-size:13px; font-weight:600; cursor:pointer; color:#57534e; }
+  .pill.active.teal { background:var(--teal); border-color:var(--teal); color:white; }
+  .btn { display:inline-flex; align-items:center; gap:6px; padding:10px 18px; border-radius:8px; border:none; font-size:14px; font-weight:600; cursor:pointer; color:white; }
+  .btn.teal { background:var(--teal); } .btn.teal:hover{ background:#115e59; }
+  .btn.ghost { background:white; color:#57534e; border:1px solid #d6d3d1; }
+  .stat-row { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; margin-bottom:16px; }
+  @media(min-width:600px){ .stat-row{ grid-template-columns:repeat(4,1fr); } }
+  .stat { background:white; border:1px solid var(--stone-border); border-radius:10px; padding:12px; border-top:4px solid var(--stone); }
+  .stat.amber{ border-top-color:var(--amber); } .stat.teal{ border-top-color:var(--teal); } .stat.emerald{ border-top-color:var(--emerald); } .stat.red{ border-top-color:var(--red); } .stat.green{ border-top-color:var(--green); }
+  .stat .lbl { font-size:10px; text-transform:uppercase; color:#78716c; letter-spacing:0.5px; }
+  .stat .val { font-family:ui-monospace,monospace; font-weight:700; font-size:16px; margin-top:2px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; background:white; }
+  th { text-align:left; padding:8px; background:var(--stone-bg); font-size:10px; text-transform:uppercase; color:#78716c; letter-spacing:0.5px; white-space:nowrap; }
+  td { padding:8px; border-top:1px solid var(--stone-border); white-space:nowrap; }
+  td.num { text-align:right; font-family:ui-monospace,monospace; }
+  .table-wrap { overflow-x:auto; border:1px solid var(--stone-border); border-radius:12px; margin-bottom:16px; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:999px; font-size:11px; font-weight:600; white-space:nowrap; }
+  .badge.stone{ background:var(--stone-bg); color:#57534e; } .badge.amber{ background:var(--amber-bg); color:var(--amber); }
+  .badge.teal{ background:var(--teal-bg); color:var(--teal); } .badge.emerald{ background:var(--emerald-bg); color:var(--emerald); }
+  .badge.green{ background:var(--green-bg); color:var(--green); } .badge.red{ background:var(--red-bg); color:var(--red); }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:5px; vertical-align:middle; }
+  .dot.green{ background:var(--green); } .dot.amber{ background:var(--amber); } .dot.red{ background:var(--red); } .dot.stone{ background:#a8a29e; }
+  .actions { display:flex; gap:8px; justify-content:flex-end; }
+  .icon-btn { background:none; border:none; cursor:pointer; font-size:15px; color:#a8a29e; padding:2px; }
+  .icon-btn:hover { color:#44403c; }
+  .icon-btn.danger:hover { color:var(--red); }
+  .empty { text-align:center; color:#a8a29e; padding:24px; }
+  .toast { position:fixed; bottom:16px; right:16px; background:#1c1917; color:white; padding:10px 16px; border-radius:8px; font-size:13px; z-index:50; }
+  .section-title { font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; color:#57534e; margin:16px 0 10px; }
+  .section-title:first-child { margin-top:0; }
+  .subcard { border:1px solid var(--stone-border); border-radius:10px; padding:12px; margin-bottom:12px; background:#fafaf9; }
+  .subcard .subtitle { font-size:11px; font-weight:700; text-transform:uppercase; color:#78716c; margin-bottom:8px; }
+  .slice-table th, .slice-table td { font-size:12px; padding:6px; }
+  .hint { font-size:12px; color:#a8a29e; margin-top:6px; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<header>
+  <div class="row">
+    <div>
+      <h1>VKG Prod Lite Ver2.0</h1>
+      <p>Monthly Target · Activity Log</p>
+    </div>
+    <div class="role-select" id="userBadge" style="display:none;">
+      <span id="userRoleLabel"></span>
+      <button type="button" onclick="doLogout()" style="margin-left:8px;background:none;border:1px solid #57534e;color:#d6d3d1;border-radius:6px;padding:3px 8px;font-size:11px;cursor:pointer;">Log out</button>
+    </div>
+  </div>
+</header>
+
+<div class="bar" id="monthBar" style="display:none;">
+  <div class="row">
+    <input type="month" id="monthPicker" onchange="setMonth(this.value)" style="width:auto;">
+  </div>
+</div>
+
+<div id="loginScreen" style="max-width:360px;margin:60px auto;padding:0 16px;">
+  <div class="card">
+    <div class="section-title">Sign in</div>
+    <label><span class="lbl">Email</span><input type="email" id="loginEmail" placeholder="you@vkg.internal"></label>
+    <label><span class="lbl">Password</span><input type="password" id="loginPassword"></label>
+    <div id="loginError" style="color:var(--red);font-size:13px;margin-bottom:10px;display:none;"></div>
+    <button class="btn teal" type="button" onclick="doLogin()" style="width:100%;justify-content:center;">Sign in</button>
+  </div>
+</div>
+
+<main id="app"></main>
+<div id="toast" style="display:none;" class="toast"></div>
+
+<datalist id="massIdList"></datalist>
+<datalist id="managerList"></datalist>
+
+<script>
+// ---- Storage: this app deliberately stays on Claude's own storage for now (not Supabase) ----
+// ---- Supabase connection (same project as your other VKG apps — new key names since this app's data shape is different) ----
+const SUPABASE_URL = 'https://kfalpjblwfhlcqmxbwkc.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_LtkaUUlFOJ1DYCq4J1jXSA_63dmARUe';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const KEYS = { MASTER:'lite-prodv2-master', MASSTARGETS:'lite-prodv2-masstargets', DAILYLOG:'lite-prodv2-dailylog' };
+
+async function loadKey(key, fallback){
+  try {
+    const { data, error } = await sb.from('app_storage').select('value').eq('key', key).maybeSingle();
+    if (error) throw error;
+    return data ? data.value : fallback;
+  } catch(e){ console.error('load failed', key, e); return fallback; }
+}
+async function saveKey(key, value){
+  try {
+    const { error } = await sb.from('app_storage').upsert({ key, value, updated_at: new Date().toISOString() });
+    if (error) throw error;
+    hideSaveFailedWarning();
+    return true;
+  } catch(e){
+    console.error('save failed', key, e);
+    showSaveFailedWarning();
+    return false;
+  }
+}
+function showSaveFailedWarning(){
+  if (document.getElementById('saveFailedBanner')) return;
+  const bar = document.createElement('div');
+  bar.id = 'saveFailedBanner';
+  bar.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#dc2626;color:white;padding:10px 16px;text-align:center;font-size:13px;font-weight:600;z-index:300;';
+  bar.innerHTML = `⚠ Your last change did NOT save — check your internet connection and try again. <button onclick="document.getElementById('saveFailedBanner').remove()" style="margin-left:10px;background:rgba(255,255,255,0.2);border:none;color:white;padding:4px 10px;border-radius:6px;cursor:pointer;">Dismiss</button>`;
+  document.body.prepend(bar);
+}
+function hideSaveFailedWarning(){
+  const bar = document.getElementById('saveFailedBanner');
+  if (bar) bar.remove();
+}
+
+// ================= AUTH =================
+let currentUser = null;
+let currentRole = null; // 'viewer' | 'gm' | 'admin' | 'ceo'
+
+async function doLogin(){
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const errBox = document.getElementById('loginError');
+  errBox.style.display = 'none';
+  if (!email || !password){ errBox.textContent = 'Enter email and password.'; errBox.style.display='block'; return; }
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+  if (error){ errBox.textContent = 'Sign in failed — check your email and password.'; errBox.style.display='block'; return; }
+  await afterLogin(data.user);
+}
+
+async function doLogout(){
+  await sb.auth.signOut();
+  currentUser = null; currentRole = null;
+  document.getElementById('loginScreen').style.display = 'block';
+  document.getElementById('userBadge').style.display = 'none';
+  document.getElementById('monthBar').style.display = 'none';
+  document.getElementById('app').innerHTML = '';
+}
+
+async function afterLogin(user){
+  currentUser = user;
+  const { data: roleRow } = await sb.from('app_user_roles').select('role').eq('user_id', user.id).maybeSingle();
+  currentRole = roleRow ? roleRow.role : 'viewer';
+  // Map to the app's existing Staff/Admin permission model
+  state.role = (currentRole === 'viewer') ? 'Staff' : 'Admin';
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('userBadge').style.display = 'flex';
+  document.getElementById('userRoleLabel').textContent = currentRole.toUpperCase() + ' (' + user.email + ')';
+  document.getElementById('monthBar').style.display = 'block';
+  await init();
+}
+
+async function checkExistingSession(){
+  const { data } = await sb.auth.getSession();
+  if (data && data.session && data.session.user){
+    await afterLogin(data.session.user);
+  }
+}
+checkExistingSession();
+
+let state = {
+  role: 'Staff',
+  month: new Date().toISOString().slice(0,7),
+  master: { massIds: [], managers: [] },
+  massTargets: [],
+  dailyLog: [],
+  loading: true,
+};
+let targetForm = null;
+let logForm = null;
+let targetFormManagerMode = 'select';
+let logFormManagerMode = 'select';
+let expandedMassId = null;
+let showHeadlineSummary = false;
+
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+const today = () => new Date().toISOString().slice(0,10);
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const PITS = ['A','B','C','D','E','F','N'];
+const ACTIVITIES = ['Bore & Wiresaw','Slice Dropping','Slice Removal'];
+const PER_SLICE_ACTIVITIES = ['Slice Dropping','Slice Removal'];
+
+function flash(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.style.display='block';
+  setTimeout(()=>{ t.style.display='none'; }, 2000);
+}
+function daysBetween(a,b){ return Math.round((new Date(b) - new Date(a)) / 86400000); }
+function monthOfDate(d){ return (d||'').slice(0,7); }
+
+async function init(){
+  state.master = await loadKey(KEYS.MASTER, { massIds: [], managers: [] });
+  state.massTargets = await loadKey(KEYS.MASSTARGETS, []);
+  state.dailyLog = await loadKey(KEYS.DAILYLOG, []);
+  state.loading = false;
+  document.getElementById('monthPicker').value = state.month;
+  render();
+}
+// init() now only runs after a successful login — see afterLogin() above
+
+function setRole(r){ state.role = r; render(); }
+function setMonth(m){ state.month = m; targetForm = null; logForm = null; render(); }
+
+async function addMassId(id){ if (!id || state.master.massIds.includes(id)) return; state.master.massIds=[...state.master.massIds,id]; await saveKey(KEYS.MASTER,state.master); }
+async function addManager(name){ if (!name || state.master.managers.includes(name)) return; state.master.managers=[...state.master.managers,name]; await saveKey(KEYS.MASTER,state.master); }
+function refreshDatalists(){
+  document.getElementById('massIdList').innerHTML = state.master.massIds.map(m=>`<option value="${esc(m)}">`).join('');
+}
+
+// ================= STATUS =================
+function makeSlices(n, existing){
+  const arr = [];
+  for (let i=1;i<=n;i++){
+    const prev = (existing||[]).find(s=>s.sliceNo===i);
+    arr.push(prev || { sliceNo:i, droppingDate:'', removalDate:'' });
+  }
+  return arr;
+}
+// Mass completion date = the removal date of the LAST slice, only once every slice is removed.
+function computeCompletionDate(m){
+  if (!m.slices || m.slices.length===0) return '';
+  const allRemoved = m.slices.every(s=>s.removalDate);
+  if (!allRemoved) return '';
+  return m.slices.map(s=>s.removalDate).sort().slice(-1)[0];
+}
+function computeMassStatus(m){
+  const completionDate = computeCompletionDate(m);
+  const boreWiresawDone = !!m.boreWiresawDate;
+  const slicesDone = (m.slices||[]).filter(s=>s.removalDate).length;
+  const totalSlices = (m.slices||[]).length;
+
+  let currentActivity;
+  if (!boreWiresawDone) currentActivity = 'Bore & Wiresaw';
+  else {
+    const nextSlice = (m.slices||[]).find(s=>!s.droppingDate || !s.removalDate);
+    if (!nextSlice) currentActivity = 'Completed';
+    else currentActivity = !nextSlice.droppingDate ? `Slice Dropping (S${nextSlice.sliceNo})` : `Slice Removal (S${nextSlice.sliceNo})`;
+  }
+
+  let status, delayDays = 0;
+  if (completionDate){
+    delayDays = Math.max(0, daysBetween(m.targetCompletionDate || completionDate, completionDate));
+    status = 'Completed';
+  } else if (m.targetCompletionDate) {
+    delayDays = Math.max(0, daysBetween(m.targetCompletionDate, today()));
+    status = delayDays === 0 ? 'Green' : (delayDays <= 2 ? 'Amber' : 'Red');
+  } else {
+    status = 'Green';
+  }
+  return { status, delayDays, currentActivity, completionDate, boreWiresawDone, slicesDone, totalSlices };
+}
+
+// ================= MASS TARGET FORM =================
+function blankTarget(){
+  return { id:null, month: state.month, massId:'', pitId:'', managerName:'', slicesTargeted:'', volumeCBM:'', customerName:'',
+    targetCompletionDate:'', boreWiresawDate:'', slices:[] };
+}
+function openTargetForm(id){
+  const existing = id ? state.massTargets.find(t=>t.id===id) : null;
+  targetForm = existing ? JSON.parse(JSON.stringify(existing)) : blankTarget();
+  targetFormManagerMode = (targetForm.managerName && !state.master.managers.includes(targetForm.managerName)) ? 'new' : 'select';
+  render();
+  window.scrollTo({top:0, behavior:'smooth'});
+}
+function closeTargetForm(){ targetForm = null; render(); }
+function syncSliceCount(){
+  const n = Math.max(0, Number(targetForm.slicesTargeted)||0);
+  targetForm.slices = makeSlices(n, targetForm.slices);
+  render();
+}
+function setSliceField(sliceNo, field, value){
+  const s = targetForm.slices.find(x=>x.sliceNo===sliceNo);
+  if (s) s[field] = value;
+}
+async function submitTarget(keepOpen){
+  const f = targetForm;
+  if (!f.massId || !f.pitId){ alert('Please fill Mass ID and Pit.'); return; }
+  const rec = { ...f, slicesTargeted: Number(f.slicesTargeted)||0 };
+  if (f.id){
+    state.massTargets = state.massTargets.map(t => t.id===f.id ? rec : t);
+  } else {
+    rec.id = uid();
+    if (state.massTargets.some(t=>t.month===rec.month && t.massId===rec.massId)){ alert('This Mass ID already has a target this month — edit the existing one instead.'); return; }
+    state.massTargets = [...state.massTargets, rec];
+  }
+  await saveKey(KEYS.MASSTARGETS, state.massTargets);
+  await addMassId(f.massId);
+  if (f.managerName) await addManager(f.managerName);
+  if (keepOpen){
+    flash('Saved — keep filling in the rest whenever you\'re ready');
+    targetForm = { ...rec };
+    render();
+  } else {
+    flash(f.id ? 'Mass target updated' : 'Mass target added');
+    targetForm = null;
+    render();
+  }
+}
+let pendingDelete = null; // { type: 'target'|'log', id }
+function requestDeleteTarget(id){ pendingDelete = { type:'target', id }; render(); }
+function requestDeleteLog(id){ pendingDelete = { type:'log', id }; render(); }
+function cancelDelete(){ pendingDelete = null; render(); }
+async function confirmDelete(){
+  if (!pendingDelete) return;
+  if (pendingDelete.type === 'target'){
+    state.massTargets = state.massTargets.filter(t=>t.id!==pendingDelete.id);
+    await saveKey(KEYS.MASSTARGETS, state.massTargets);
+    flash('Mass target deleted');
+  } else if (pendingDelete.type === 'log'){
+    state.dailyLog = state.dailyLog.filter(l=>l.id!==pendingDelete.id);
+    await saveKey(KEYS.DAILYLOG, state.dailyLog);
+    flash('Log entry deleted');
+  }
+  pendingDelete = null;
+  render();
+}
+function deleteConfirmWidget(){
+  return `<span style="display:inline-flex;align-items:center;gap:6px;background:#fee2e2;border:1px solid #fecaca;border-radius:8px;padding:4px 8px;">
+    <span style="font-size:11px;color:#b91c1c;">Delete?</span>
+    <button onclick="confirmDelete()" style="font-size:11px;font-weight:700;color:#b91c1c;background:none;border:none;text-decoration:underline;cursor:pointer;">Confirm</button>
+    <button onclick="cancelDelete()" style="font-size:11px;color:#78716c;background:none;border:none;cursor:pointer;">Cancel</button>
+  </span>`;
+}
+
+function renderTargetForm(){
+  const f = targetForm;
+  const sliceRows = (f.slices||[]).map(s => `
+    <tr>
+      <td style="font-weight:600;">S${s.sliceNo}</td>
+      <td><input type="date" value="${esc(s.droppingDate)}" onchange="setSliceField(${s.sliceNo},'droppingDate',this.value)"></td>
+      <td><input type="date" value="${esc(s.removalDate)}" onchange="setSliceField(${s.sliceNo},'removalDate',this.value)"></td>
+    </tr>`).join('');
+
+  return `
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:4px;">
+      <p class="section-title" style="margin:0;">${f.id ? 'Edit Mass Target' : 'New Mass Target'}</p>
+      <div>
+        <button class="btn teal" onclick="submitTarget(true)">💾 Save changes</button>
+        <button class="btn ghost" onclick="closeTargetForm()">Cancel</button>
+      </div>
+    </div>
+    <p class="hint" style="margin-top:0;">You can save at any point while filling this in — nothing here needs to be complete first.</p>
+    <div class="subcard">
+      <div class="subtitle">Basic info</div>
+      <div class="grid3">
+        <label><span class="lbl">Mass ID</span><input list
